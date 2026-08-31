@@ -158,6 +158,9 @@ function bindHotkeys() {
 
         const ctrl = e.ctrlKey || e.metaKey;
 
+        const editMode = AppState.mode === "edit";
+        if (!editMode && e.key !== "Escape") return;
+
         if (ctrl && e.key.toLowerCase() === "s") {
             e.preventDefault();
             doSave();
@@ -235,6 +238,7 @@ async function doLoad() {
 
 async function doSave() {
     if (!AppState.currentUser) return;
+    if (AppState.mode !== "edit") return;
     if (!isStorageConfigured()) {
         setSaveStatus("Хранилище GitHub не настроено", "info");
         return;

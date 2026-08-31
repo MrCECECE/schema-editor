@@ -49,7 +49,8 @@ function isConfigured() {
         CONFIG.owner &&
         CONFIG.repo &&
         CONFIG.token &&
-        !CONFIG.owner.startsWith("ВАШ_")
+        !CONFIG.owner.startsWith("ВАШ_") &&
+        !CONFIG.token.includes("_PAT_")
     );
 }
 
