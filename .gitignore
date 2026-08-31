@@ -3,3 +3,6 @@ test/data-files/
 
 # Локальные файлы Node
 node_modules/
+
+# JetBrains IDE
+.idea/
