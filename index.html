@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schema Editor</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+</head>
+<body>
+    <!-- ===== Экран логина ===== -->
+    <div id="login-screen" class="screen hidden">
+        <div class="login-card">
+            <h1 class="login-title">Schema Editor</h1>
+            <p class="login-subtitle">Войдите, чтобы редактировать блок-схему</p>
+            <form id="login-form">
+                <label class="field-label" for="login-username">Логин</label>
+                <input type="text" id="login-username" class="text-input" autocomplete="username" required>
+                <label class="field-label" for="login-password">Пароль</label>
+                <input type="password" id="login-password" class="text-input" autocomplete="current-password" required>
+                <div id="login-error" class="error-msg hidden"></div>
+                <button type="submit" id="login-submit" class="btn btn-primary">Войти</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===== Экран редактора ===== -->
+    <div id="editor-screen" class="screen hidden">
+        <header class="topbar">
+            <div class="topbar-left">
+                <span id="file-name" class="file-name">schema.json</span>
+                <span id="save-status" class="save-status">—</span>
+            </div>
+            <div class="topbar-right">
+                <button id="btn-load" class="btn btn-ghost" title="Загрузить схему с GitHub">Загрузить</button>
+                <button id="btn-save" class="btn btn-ghost" title="Сохранить (Ctrl+S)">Сохранить</button>
+                <button id="btn-export-png" class="btn btn-ghost" title="Экспорт в PNG">PNG</button>
+                <button id="btn-export-svg" class="btn btn-ghost" title="Экспорт в SVG">SVG</button>
+                <button id="btn-logout" class="btn btn-danger">Выйти</button>
+            </div>
+        </header>
+
+        <div class="workspace">
+            <!-- Левая панель: тулбар -->
+            <aside class="toolbar">
+                <div class="tool-group-label">Инструменты</div>
+                <div class="tool-group">
+                    <button class="tool-btn active" data-tool="select" title="Выбор (V)"></button>
+                    <button class="tool-btn" data-tool="rectangle" title="Прямоугольник (R)"></button>
+                    <button class="tool-btn" data-tool="diamond" title="Ромб (D)"></button>
+                    <button class="tool-btn" data-tool="circle" title="Круг (O)"></button>
+                    <button class="tool-btn" data-tool="line" title="Линия (L)"></button>
+                    <button class="tool-btn" data-tool="arrow" title="Стрелка (A)"></button>
+                    <button class="tool-btn" data-tool="text" title="Текст (T)"></button>
+                    <button class="tool-btn" data-tool="pencil" title="Карандаш (P)"></button>
+                    <button class="tool-btn" data-tool="eraser" title="Ластик (E)"></button>
+                </div>
+                <div class="tool-group-label">Объекты</div>
+                <div class="tool-group">
+                    <button class="tool-btn" data-tool="group" title="Группировать (Ctrl+G)"></button>
+                    <button class="tool-btn" data-tool="ungroup" title="Разгруппировать (Ctrl+Shift+G)"></button>
+                    <button class="tool-btn" data-tool="delete" title="Удалить (Del)"></button>
+                </div>
+                <div class="tool-group-label">Вид</div>
+                <div class="tool-group">
+                    <button id="btn-zoom-in" class="tool-btn" title="Приблизить"></button>
+                    <button id="btn-zoom-out" class="tool-btn" title="Отдалить"></button>
+                    <button id="btn-zoom-reset" class="tool-btn" title="100%"></button>
+                    <button id="btn-grid" class="tool-btn active" title="Показать/скрыть сетку"></button>
+                </div>
+            </aside>
+
+            <!-- Центр: холст -->
+            <main class="canvas-area">
+                <div id="canvas-container">
+                    <canvas id="schema-canvas"></canvas>
+                </div>
+            </main>
+
+            <!-- Правая панель: свойства -->
+            <aside class="properties-panel">
+                <div class="panel-group-label">Свойства</div>
+                <div id="props-no-selection" class="props-hint">Выберите объект на холсте</div>
+                <div id="props-selection" class="props-fields hidden">
+                    <label class="props-label" for="prop-fill">Заливка</label>
+                    <input type="color" id="prop-fill" value="#4a90d9">
+
+                    <label class="props-label" for="prop-stroke">Обводка</label>
+                    <input type="color" id="prop-stroke" value="#ffffff">
+
+                    <label class="props-label" for="prop-stroke-width">Толщина обводки</label>
+                    <input type="range" id="prop-stroke-width" min="0" max="20" value="2">
+
+                    <label class="props-label" for="prop-font-size">Размер шрифта</label>
+                    <input type="number" id="prop-font-size" min="8" max="200" value="20">
+
+                    <label class="props-label" for="prop-opacity">Прозрачность</label>
+                    <input type="range" id="prop-opacity" min="0" max="1" step="0.05" value="1">
+
+                    <label class="props-label" for="prop-angle">Поворот (°)</label>
+                    <input type="number" id="prop-angle" min="-360" max="360" value="0">
+
+                    <label class="props-checkbox-label" for="prop-locked">
+                        <input type="checkbox" id="prop-locked"> Заблокировать
+                    </label>
+                </div>
+            </aside>
+        </div>
+
+        <footer class="statusbar">
+            <span id="status-zoom">100%</span>
+            <span id="status-coords">x: 0, y: 0</span>
+            <span id="status-mode">Режим: просмотр</span>
+            <span id="status-user"></span>
+        </footer>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

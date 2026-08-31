@@ -1,0 +1,18 @@
+export const ICONS = {
+    select: `<svg viewBox="0 0 24 24"><path d="M4 2 L4 15 L8 12.5 L11 19 L13 18 L10 11.5 L14.5 10.5 Z"/></svg>`,
+    rectangle: `<svg viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="12" rx="1"/></svg>`,
+    diamond: `<svg viewBox="0 0 24 24"><rect x="12" y="5" width="16" height="16" transform="rotate(45 12 12)"/></svg>`,
+    circle: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg>`,
+    line: `<svg viewBox="0 0 24 24"><line x1="4" y1="18" x2="20" y2="6" stroke="currentColor" stroke-width="2"/></svg>`,
+    arrow: `<svg viewBox="0 0 24 24"><path d="M4 12 L18 12 M18 12 L13 7 M18 12 L13 17" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
+    text: `<svg viewBox="0 0 24 24"><path d="M5 5 H19 V8 M12 5 V19 M9 19 H15" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
+    pencil: `<svg viewBox="0 0 24 24"><path d="M4 20 L4 15 L15 4 L20 9 L9 20 Z M13 6 L18 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+    eraser: `<svg viewBox="0 0 24 24"><path d="M9 3 L21 15 L15 20 L3 8 Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+    group: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+    ungroup: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 3 H21 V11" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+    delete: `<svg viewBox="0 0 24 24"><path d="M6 7 L18 7 M9 7 V5 H15 V7 M8 7 L9 19 H15 L16 7" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+    zoomIn: `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16 L21 21 M11 8 V14 M8 11 H14" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
+    zoomOut: `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16 L21 21 M8 11 H14" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
+    zoomReset: `<svg viewBox="0 0 24 24"><path d="M12 3 V7 M12 17 V21 M4 12 H8 M16 12 H20 M5.5 5.5 L8.5 8.5 M15.5 15.5 L18.5 18.5 M18.5 5.5 L15.5 8.5 M8.5 15.5 L5.5 18.5" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
+    grid: `<svg viewBox="0 0 24 24"><path d="M4 4 H20 V20 H4 Z M4 10 H20 M4 16 H20 M10 4 V20 M16 4 V20" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`,
+};

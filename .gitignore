@@ -1,0 +1,5 @@
+# Тестовые данные эмулятора GitHub API
+test/data-files/
+
+# Локальные файлы Node
+node_modules/
