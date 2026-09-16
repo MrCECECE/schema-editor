@@ -55,6 +55,7 @@ function applyGrid(enable) {
     if (gridObject && !gridObject.isMoving) {
         canvas.remove(gridObject);
         gridObject = null;
+        canvas.gridObject = null;
     }
     if (enable) {
         drawGrid();
@@ -104,6 +105,7 @@ function drawGrid() {
             canvas.backgroundColor = "#1a1a2e";
             canvas.sendToBack(grid);
             gridObject = grid;
+            canvas.gridObject = grid;
             canvas.renderAll();
         });
     };
@@ -265,6 +267,7 @@ function createShape(tool, x1, y1, x2, y2) {
                 left: 0, top: 0,
             });
             path.set({ left, top });
+            path.set({ shapeType: "diamond" });
             return path;
         }
         case "circle":

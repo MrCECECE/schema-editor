@@ -32,6 +32,21 @@ html, body {
     display: none !important;
 }
 
+.google-user {
+    font-size: 13px;
+    color: var(--accent);
+    margin-left: 8px;
+}
+
+.google-signin {
+    display: inline-block;
+    margin-left: 8px;
+}
+
+.google-signin > div {
+    min-width: 120px;
+}
+
 /* ===== Экран логина ===== */
 .screen {
     height: 100vh;
@@ -146,6 +161,18 @@ html, body {
 .btn-danger:hover {
     color: var(--danger);
     background: var(--bg-hover);
+}
+
+.btn-google {
+    background: #fff;
+    border-color: #dadce0;
+    color: #3c4043;
+    font-weight: 600;
+}
+
+.btn-google:hover {
+    background: #f7f7f7;
+    border-color: #dadce0;
 }
 
 /* ===== Экран редактора ===== */

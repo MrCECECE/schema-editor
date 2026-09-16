@@ -21,8 +21,8 @@ export async function login(username, password) {
     return { success: true, user };
 }
 
-export function setSession(user) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ username: user.username, role: user.role }));
+export function setSession(session) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
 export function getSession() {
