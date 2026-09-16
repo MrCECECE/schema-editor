@@ -254,8 +254,7 @@ async function pushToSheets() {
 function extractLines(data) {
     if (!data.values || !Array.isArray(data.values)) return [];
     return data.values
-        .map((row) => (row && row.length > 0 ? String(row[0]).split(/\r?\n/) : []))
-        .flat()
+        .map((row) => (row && row.length > 0 ? String(row[0]) : ""))
         .filter((line) => line.trim() && !line.trim().startsWith("#"));
 }
 

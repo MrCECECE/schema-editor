@@ -29,6 +29,7 @@ function paintIcons() {
 function init() {
     paintIcons();
     AppState.canvas = initEditor();
+    setViewOnly();
     bindToolbar();
     bindStatus();
 
@@ -51,6 +52,7 @@ async function refresh() {
         if (lines.length > 0) {
             const { objects, groups } = parseLines(lines);
             renderOnCanvas(AppState.canvas, objects, groups);
+            setViewOnly();
             AppState.lastUpdate = new Date();
             const ago = formatTimeAgo(AppState.lastUpdate);
             setStatus("Updated • " + ago, "ok");
@@ -68,8 +70,7 @@ async function refresh() {
 function extractLines(data) {
     if (!data.values || !Array.isArray(data.values)) return [];
     return data.values
-        .map((row) => (row && row.length > 0 ? String(row[0]).split(/\r?\n/) : []))
-        .flat()
+        .map((row) => (row && row.length > 0 ? String(row[0]) : ""))
         .filter((line) => line.trim() && !line.trim().startsWith("#"));
 }
 
@@ -137,6 +138,20 @@ function bindStatus() {
     document.addEventListener("zoom:changed", (e) => {
         const el = document.getElementById("status-zoom");
         if (el) el.textContent = e.detail.zoom + "%";
+    });
+}
+
+function setViewOnly() {
+    const c = AppState.canvas;
+    if (!c) return;
+    c.selection = false;
+    c.skipTargetFind = true;
+    c.defaultCursor = "default";
+    c.discardActiveObject();
+    (c.getObjects() || []).forEach((o) => {
+        o.selectable = false;
+        o.evented = false;
+        o.hoverCursor = "default";
     });
 }
 
