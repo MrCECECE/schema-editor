@@ -1,16 +1,11 @@
 import { initEditor, getCanvas, toggleGrid, setCurrentTool, zoomIn, zoomOut, resetZoom, updateZoomUI, groupSelected, ungroupSelected, deleteSelected, addText, getCanvasBgColor, updateObjectsForTheme, setViewOnlyMode } from "./editor.js";
 import { createHistory } from "./history.js";
 import { parseLines, renderOnCanvas, encodeCanvas } from "./sheetlang.js";
-import { setSession, getSession, logout } from "./auth.js";
 import { ICONS } from "./icons.js";
 
 const CONFIG = {
     sheetsId: "1e3ut8uuhbwHS0ZpZL-VWvP886mBXwgFUzSRrjkQS15k",
-    // Google OAuth: поставьте свой Client ID из console.cloud.google.com
-    // Чтобы включить: Google Cloud Console → Credentials → OAuth 2.0 Client ID
-    // Authorized JavaScript origins: http://localhost:8099 (или ваш домен)
-    googleClientId: "959024824195-qgn1g80lac013lniqan8gk7j1lod9l64.apps.googleusercontent.com",
-    scopes: "openid email https://www.googleapis.com/auth/spreadsheets",
+    scopes: "openid email profile https://www.googleapis.com/auth/spreadsheets",
     refreshInterval: 86400000,
 };
 
@@ -41,29 +36,9 @@ function paintIcons() {
 }
 
 function initTheme() {
-    const saved = localStorage.getItem("schema-theme") || "dark";
-    document.body.className = "theme-" + saved;
-    updateThemeIcon(saved);
-}
-
-function toggleTheme() {
-    const current = document.body.className.includes("dark") ? "dark" : "light";
-    const next = current === "dark" ? "light" : "dark";
-    document.body.className = "theme-" + next;
-    localStorage.setItem("schema-theme", next);
-    updateThemeIcon(next);
-    if (AppState.canvas) {
-        updateObjectsForTheme();
-        AppState.canvas.setBackgroundColor(getCanvasBgColor());
-        AppState.canvas.renderAll();
-    }
-}
-
-function updateThemeIcon(theme) {
+    Theme.apply(Theme.current());
     const icon = document.querySelector(".theme-icon");
-    if (icon) {
-        icon.textContent = theme === "dark" ? "🌙" : "☀️";
-    }
+    if (icon) icon.textContent = document.documentElement.dataset.theme === "dark" ? "🌙" : "☀️";
 }
 
 let bottomSheet = null;
@@ -81,20 +56,29 @@ function init() {
 
         const themeBtn = document.getElementById("btn-theme-toggle");
         if (themeBtn) {
-            themeBtn.addEventListener("click", toggleTheme);
+            themeBtn.addEventListener("click", () => {
+                Theme.toggle();
+                const icon = document.querySelector(".theme-icon");
+                if (icon) icon.textContent = document.documentElement.dataset.theme === "dark" ? "🌙" : "☀️";
+                if (AppState.canvas) {
+                    updateObjectsForTheme();
+                    AppState.canvas.setBackgroundColor(getCanvasBgColor());
+                    AppState.canvas.renderAll();
+                }
+            });
         }
 
         window.addEventListener("resize", onResize);
 
-    const session = getSession();
-    if (session && session.googleToken && CONFIG.googleClientId && CONFIG.googleClientId.indexOf("googleusercontent") !== -1) {
-        AppState.googleToken = session.googleToken;
-        AppState.googleUser = { username: session.email || "unknown" };
-    }
-    showEditor();
-    if (document.getElementById("google-signin-container") && CONFIG.googleClientId) {
-        initGoogleSignIn();
-    }
+        const session = Auth.getSession();
+        if (session && session.accessToken && window.APP_CONFIG?.googleClientId) {
+            AppState.googleToken = session.accessToken;
+            AppState.googleUser = { username: session.email || session.name || "unknown" };
+        }
+        showEditor();
+        if (document.getElementById("google-signin-container") && window.APP_CONFIG?.googleClientId) {
+            initGoogleSignIn();
+        }
     } catch (e) {
         console.error("Init failed:", e);
         showFatalError("Ошибка инициализации: " + (e && e.message ? e.message : "unknown"));
@@ -224,10 +208,10 @@ function rebuildBottomSheet() {
 
 function ensureTokenClient() {
     if (AppState.tokenClient) return true;
-    if (!CONFIG.googleClientId) return false;
+    if (!window.APP_CONFIG?.googleClientId) return false;
     if (typeof google === "undefined" || !google.accounts || !google.accounts.oauth2) return false;
     AppState.tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CONFIG.googleClientId,
+        client_id: window.APP_CONFIG.googleClientId,
         scope: CONFIG.scopes,
         callback: handleTokenResponse,
     });
@@ -235,7 +219,7 @@ function ensureTokenClient() {
 }
 
 function initGoogleSignIn() {
-    if (!CONFIG.googleClientId) return;
+    if (!window.APP_CONFIG?.googleClientId) return;
     if (!ensureTokenClient()) {
         setTimeout(initGoogleSignIn, 200);
         return;
@@ -294,19 +278,17 @@ function handleTokenResponse(response) {
         return;
     }
 
-    fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
         headers: { Authorization: "Bearer " + response.access_token },
     })
         .then((res) => res.json())
         .then((info) => {
             const email = info.email || info.name || "unknown";
             AppState.googleUser = { username: email };
-            setSession({ email, googleToken: response.access_token });
             showEditor();
         })
         .catch(() => {
             AppState.googleUser = { username: "unknown" };
-            setSession({ email: "unknown", googleToken: response.access_token });
             showEditor();
         });
 }
@@ -324,7 +306,7 @@ function showEditor() {
         if (AppState.isMobile) rebuildBottomSheet();
     }, 0);
 
-    if (AppState.googleToken && CONFIG.googleClientId) {
+    if (AppState.googleToken && window.APP_CONFIG?.googleClientId) {
         setSignedInUI(true);
     } else {
         setSignedInUI(false);
@@ -494,28 +476,30 @@ function bindToolbar() {
     const pushBtn = document.getElementById("btn-push");
     if (pushBtn) pushBtn.addEventListener("click", pushToSheets);
     const signoutBtn = document.getElementById("btn-signout");
-    if (signoutBtn) signoutBtn.addEventListener("click", signOut);
+    if (signoutBtn) signoutBtn.addEventListener("click", () => Auth.logout());
     const exportPngBtn = document.getElementById("btn-export-png");
     if (exportPngBtn) exportPngBtn.addEventListener("click", exportPNG);
     const exportSvgBtn = document.getElementById("btn-export-svg");
     if (exportSvgBtn) exportSvgBtn.addEventListener("click", exportSVG);
 }
 
-function signOut() {
-    try {
-        if (AppState.googleToken && typeof google !== "undefined" && google.accounts && google.accounts.oauth2 && google.accounts.oauth2.revoke) {
-            google.accounts.oauth2.revoke(AppState.googleToken, () => {});
-        }
-    } catch { /* ignore revoke errors */ }
-    logout();
-    AppState.googleToken = null;
-    AppState.googleUser = null;
-    setSignedInUI(false);
-    initGoogleSignIn();
-    setSaveStatus("Signed out", "info");
-}
-
 function bindHotkeys() {
+    Hotkeys.bind({
+        'v': () => { setCurrentTool("select"); activateTool("select"); },
+        'r': () => { setCurrentTool("rectangle"); activateTool("rectangle"); },
+        'd': () => { setCurrentTool("diamond"); activateTool("diamond"); },
+        'o': () => { setCurrentTool("circle"); activateTool("circle"); },
+        'l': () => { setCurrentTool("line"); activateTool("line"); },
+        'a': () => { setCurrentTool("arrow"); activateTool("arrow"); },
+        't': () => { addText(); activateTool("text"); },
+        'p': () => { setCurrentTool("pencil"); activateTool("pencil"); },
+        'e': () => { setCurrentTool("eraser"); activateTool("eraser"); },
+        'h': () => { setCurrentTool("hand"); activateTool("hand"); },
+        '?': () => document.getElementById('hotkeyHelp').showModal(),
+        'delete': () => deleteSelected(),
+        'escape': () => { AppState.canvas.discardActiveObject(); AppState.canvas.requestRenderAll(); },
+    }, { ignoreInInput: true });
+
     document.addEventListener("keydown", (e) => {
         if (!AppState.canvas) return;
         const tag = document.activeElement && document.activeElement.tagName;
@@ -530,18 +514,6 @@ function bindHotkeys() {
         else if (ctrl && e.code === "KeyY") { e.preventDefault(); AppState.history.redo(); }
         else if (ctrl && e.shiftKey && e.code === "KeyG") { e.preventDefault(); ungroupSelected(); }
         else if (ctrl && e.code === "KeyG") { e.preventDefault(); groupSelected(); }
-        else if (e.code === "Delete") { deleteSelected(); }
-        else if (e.code === "Escape") { AppState.canvas.discardActiveObject(); AppState.canvas.requestRenderAll(); }
-        else if (e.code === "KeyV") { setCurrentTool("select"); activateTool("select"); }
-        else if (e.code === "KeyH") { setCurrentTool("hand"); activateTool("hand"); }
-        else if (e.code === "KeyR") { setCurrentTool("rectangle"); activateTool("rectangle"); }
-        else if (e.code === "KeyD") { setCurrentTool("diamond"); activateTool("diamond"); }
-        else if (e.code === "KeyO") { setCurrentTool("circle"); activateTool("circle"); }
-        else if (e.code === "KeyL") { setCurrentTool("line"); activateTool("line"); }
-        else if (e.code === "KeyA") { setCurrentTool("arrow"); activateTool("arrow"); }
-        else if (e.code === "KeyT") { addText(); activateTool("text"); }
-        else if (e.code === "KeyP") { setCurrentTool("pencil"); activateTool("pencil"); }
-        else if (e.code === "KeyE") { setCurrentTool("eraser"); activateTool("eraser"); }
     });
 }
 
@@ -594,23 +566,6 @@ function download(url, filename) {
 document.addEventListener("canvas:dirty", () => {});
 document.addEventListener("history:request", () => {
     if (AppState.history) AppState.history.saveState();
-});
-
-window.addEventListener("resize", () => {
-    if (AppState.canvas) {
-        const container = document.getElementById("canvas-container");
-        if (container) {
-            const maxW = container.parentElement.clientWidth - 40;
-            const maxH = container.parentElement.clientHeight - 40;
-            if (maxW > 0 && maxH > 0) {
-                const zoomX = maxW / 1000;
-                const zoomY = maxH / 700;
-                const zoom = Math.min(zoomX, zoomY, 1);
-                AppState.canvas.setZoom(zoom);
-                updateZoomUI();
-            }
-        }
-    }
 });
 
 init();

@@ -26,32 +26,6 @@ function paintIcons() {
     });
 }
 
-function initTheme() {
-    const saved = localStorage.getItem("schema-theme") || "dark";
-    document.body.className = "theme-" + saved;
-    updateThemeIcon(saved);
-}
-
-function toggleTheme() {
-    const current = document.body.className.includes("dark") ? "dark" : "light";
-    const next = current === "dark" ? "light" : "dark";
-    document.body.className = "theme-" + next;
-    localStorage.setItem("schema-theme", next);
-    updateThemeIcon(next);
-    if (AppState.canvas) {
-        updateObjectsForTheme();
-        AppState.canvas.setBackgroundColor(getCanvasBgColor());
-        AppState.canvas.renderAll();
-    }
-}
-
-function updateThemeIcon(theme) {
-    const icon = document.querySelector(".theme-icon");
-    if (icon) {
-        icon.textContent = theme === "dark" ? "🌙" : "☀️";
-    }
-}
-
 function init() {
     try {
         if (typeof fabric === "undefined") {
@@ -72,7 +46,8 @@ function init() {
                 ctx.font = this._getFontDeclaration(charStyle, forMeasuring);
             };
         }
-        initTheme();
+        Theme.apply(Theme.current());
+        updateThemeIcon();
         paintIcons();
         AppState.canvas = initEditor();
         setViewOnly();
@@ -82,7 +57,15 @@ function init() {
 
         const themeBtn = document.getElementById("btn-theme-toggle");
         if (themeBtn) {
-            themeBtn.addEventListener("click", toggleTheme);
+            themeBtn.addEventListener("click", () => {
+                Theme.toggle();
+                updateThemeIcon();
+                if (AppState.canvas) {
+                    updateObjectsForTheme();
+                    AppState.canvas.setBackgroundColor(getCanvasBgColor());
+                    AppState.canvas.renderAll();
+                }
+            });
         }
 
         refresh();
@@ -245,6 +228,13 @@ function setStatus(text, cls) {
     if (!el) return;
     el.textContent = text;
     el.style.color = cls === "error" ? "var(--danger)" : cls === "ok" ? "var(--success)" : "var(--text-dim)";
+}
+
+function updateThemeIcon() {
+    const icon = document.querySelector(".theme-icon");
+    if (icon) {
+        icon.textContent = document.documentElement.dataset.theme === "dark" ? "🌙" : "☀️";
+    }
 }
 
 window.addEventListener("resize", () => {

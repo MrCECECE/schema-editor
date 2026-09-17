@@ -1,289 +1,49 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Schema Studio — Как пользоваться</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/screen.css">
-    <style>
-        /* Документация — обычный скроллящийся layout вместо фиксированного экрана */
-        html, body { overflow: auto !important; height: auto !important; min-height: 100%; }
-        body.docs-body { display: flex; flex-direction: column; }
-
-        a.btn { text-decoration: none; }
-        .docs-body .topbar { position: sticky; top: 0; }
-        /* Не скрываем ссылки навигации в мобильном topbar (screen.css их гасит) */
-        .docs-body .topbar-right .btn:not(.btn-icon) { display: inline-flex !important; }
-
-        .docs-main { max-width: 960px; margin: 0 auto; padding: 0 24px 80px; width: 100%; }
-
-        /* Hero */
-        .docs-hero { text-align: center; padding: 56px 0 48px; border-bottom: 1px solid var(--border); margin-bottom: 48px; }
-        .docs-hero h1 {
-            font-size: 44px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 10px;
-            background: linear-gradient(135deg, var(--accent), #a78bfa);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-        }
-        .docs-hero p { color: var(--text-dim); font-size: 16px; margin-bottom: 28px; }
-        .docs-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-        .docs-cta .btn { padding: 11px 24px; font-size: 14px; min-width: 160px; justify-content: center; }
-        .docs-cta .btn-primary { width: auto; box-shadow: 0 4px 16px var(--accent-glow); }
-
-        .docs-section { margin-bottom: 56px; }
-        .docs-section h2 {
-            font-size: 22px; font-weight: 700; margin-bottom: 18px; letter-spacing: -0.01em;
-        }
-
-        /* Карточки страниц */
-        .docs-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-        .docs-card {
-            padding: 22px; background: var(--bg-panel); border: 1px solid var(--border);
-            border-radius: var(--radius-md); transition: all var(--transition);
-            display: flex; flex-direction: column;
-        }
-        .docs-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-md); }
-        .docs-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
-        .docs-card p { font-size: 13px; color: var(--text-dim); margin-bottom: 14px; line-height: 1.6; flex: 1; }
-        .docs-card a { color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 600; align-self: flex-start; }
-        .docs-card a:hover { color: var(--accent-hover); }
-
-        /* Шаги */
-        .docs-steps { list-style: none; counter-reset: step; }
-        .docs-steps li {
-            counter-increment: step;
-            padding: 16px 18px 16px 60px; position: relative;
-            background: var(--bg-panel); border: 1px solid var(--border);
-            border-radius: var(--radius-md); margin-bottom: 10px;
-            font-size: 14px; line-height: 1.6;
-        }
-        .docs-steps li::before {
-            content: counter(step);
-            position: absolute; left: 18px; top: 18px;
-            width: 28px; height: 28px; border-radius: 50%;
-            background: var(--accent); color: #fff;
-            display: flex; align-items: center; justify-content: center;
-            font-weight: 700; font-size: 13px;
-        }
-        .docs-steps li strong { color: var(--text-bright); }
-
-        code {
-            background: var(--bg-elevated); padding: 2px 6px; border-radius: 4px;
-            font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-            font-size: 12.5px; color: var(--accent);
-        }
-
-        /* Таблицы */
-        .docs-table {
-            width: 100%; border-collapse: collapse;
-            background: var(--bg-panel); border: 1px solid var(--border);
-            border-radius: var(--radius-md); overflow: hidden; font-size: 13px;
-        }
-        .docs-table th, .docs-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-        .docs-table th {
-            background: var(--bg-elevated); font-weight: 700; font-size: 11px;
-            text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim);
-        }
-        .docs-table tr:last-child td { border-bottom: none; }
-        .docs-table kbd {
-            display: inline-block; padding: 2px 7px;
-            background: var(--bg-elevated); border: 1px solid var(--border-strong);
-            border-bottom-width: 2px; border-radius: 4px;
-            font-family: ui-monospace, monospace; font-size: 11.5px; color: var(--text);
-        }
-
-        /* Пример кода */
-        .docs-pre {
-            background: var(--bg-panel); border: 1px solid var(--border);
-            border-radius: var(--radius-md); padding: 16px 20px;
-            overflow-x: auto; margin-top: 12px;
-            font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-            font-size: 12.5px; line-height: 1.75; color: var(--text); white-space: pre;
-        }
-        .docs-pre .cmt { color: var(--text-dim); }
-
-        /* Note */
-        .docs-note {
-            padding: 14px 18px; background: var(--bg-elevated);
-            border-left: 3px solid var(--accent); border-radius: var(--radius-sm);
-            font-size: 13px; color: var(--text-dim); margin-top: 14px; line-height: 1.6;
-        }
-        .docs-note strong { color: var(--text); }
-        .docs-note a { color: var(--accent); }
-
-        .docs-footer {
-            text-align: center; padding: 32px 0 16px; margin-top: 24px;
-            color: var(--text-dim); font-size: 12px; border-top: 1px solid var(--border);
-        }
-
-        @media (max-width: 600px) {
-            .docs-main { padding: 0 16px 60px; }
-            .docs-hero { padding: 36px 0 32px; }
-            .docs-hero h1 { font-size: 32px; }
-            .docs-hero p { font-size: 14px; }
-            .docs-cta { flex-direction: column; }
-            .docs-cta .btn { width: 100%; justify-content: center; min-width: 0; }
-            .docs-section { margin-bottom: 40px; }
-            .docs-section h2 { font-size: 18px; }
-            .docs-steps li { padding-left: 52px; }
-        }
-    </style>
-</head>
-<body class="theme-dark docs-body">
-<script>
-    // Мгновенно применяем сохранённую тему — до первой отрисовки
+  <meta charset="UTF-8">
+  <title>Schema Editor</title>
+  <script>
     (function () {
-        const saved = localStorage.getItem("schema-theme") || "dark";
-        document.body.className = "theme-" + saved + " docs-body";
-        document.addEventListener("DOMContentLoaded", () => {
-            const icon = document.querySelector(".theme-icon");
-            if (icon) icon.textContent = saved === "dark" ? "🌙" : "☀️";
-            const btn = document.getElementById("btn-theme-toggle");
-            if (btn) btn.addEventListener("click", () => {
-                const cur = document.body.classList.contains("theme-dark") ? "dark" : "light";
-                const next = cur === "dark" ? "light" : "dark";
-                document.body.className = "theme-" + next + " docs-body";
-                localStorage.setItem("schema-theme", next);
-                if (icon) icon.textContent = next === "dark" ? "🌙" : "☀️";
-            });
-        });
+      const key = 'schema_editor_theme';
+      const saved = localStorage.getItem(key);
+      const theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.dataset.theme = theme;
     })();
-</script>
+  </script>
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <link rel="stylesheet" href="assets/css/screen.css">
+</head>
+<body>
+  <h1>Schema Editor</h1>
 
-<header class="topbar">
-    <div class="topbar-left">
-        <span class="file-name">Schema Studio</span>
-        <span class="save-status">Документация</span>
-    </div>
-    <div class="topbar-right">
-        <a href="viewer.html" class="btn btn-ghost">Viewer</a>
-        <a href="editor.html" class="btn btn-ghost">Editor</a>
-        <button id="btn-theme-toggle" class="btn-icon" title="Сменить тему">
-            <span class="theme-icon">🌙</span>
-        </button>
-    </div>
-</header>
+  <a href="view.html"><button class="btn btn-primary">Посмотреть</button></a>
+  <a href="login.html"><button class="btn btn-primary">Редактировать</button></a>
+  <button id="themeToggle" class="btn btn-ghost">🌓</button>
 
-<main class="docs-main">
-    <section class="docs-hero">
-        <h1>Schema Studio</h1>
-        <p>Визуальный редактор схем, который хранит данные в Google Sheets</p>
-        <div class="docs-cta">
-            <a href="viewer.html" class="btn btn-primary">▶ Открыть Viewer</a>
-            <a href="editor.html" class="btn">✏ Редактировать</a>
-        </div>
-    </section>
+  <dialog id="hotkeyHelp">
+    <h2>Горячие клавиши</h2>
+    <ul>
+      <li><b>V</b> — Посмотреть</li>
+      <li><b>E</b> — Редактировать</li>
+      <li><b>D</b> — Переключить тему</li>
+      <li><b>?</b> / <b>H</b> — Эта справка</li>
+    </ul>
+    <button onclick="this.closest('dialog').close()">Закрыть</button>
+  </dialog>
 
-    <section class="docs-section">
-        <h2>Три страницы</h2>
-        <div class="docs-cards">
-            <div class="docs-card">
-                <h3>👁 Viewer</h3>
-                <p>Просмотр схемы. Только чтение, без авторизации. Данные подгружаются из Google Sheets по API-ключу и обновляются автоматически.</p>
-                <a href="viewer.html">viewer.html →</a>
-            </div>
-            <div class="docs-card">
-                <h3>✏️ Editor</h3>
-                <p>Полный редактор: рисование фигур, свойства, группы, undo/redo, синхронизация с Google Sheets через OAuth (Pull / Push).</p>
-                <a href="editor.html">editor.html →</a>
-            </div>
-            <div class="docs-card">
-                <h3>🔐 Login</h3>
-                <p>Демо-вход или вход по логину/паролю. Полностью на клиенте, только для локальной разработки.</p>
-                <a href="login.html">login.html →</a>
-            </div>
-        </div>
-    </section>
+  <script src="assets/js/theme.js"></script>
+  <script src="assets/js/hotkeys.js"></script>
+  <script>
+    document.getElementById('themeToggle').onclick = () => Theme.toggle();
 
-    <section class="docs-section">
-        <h2>Быстрый старт</h2>
-        <ol class="docs-steps">
-            <li><strong>Настройте Google Cloud.</strong> Включите Sheets API, создайте API Key (для Viewer) и OAuth Client ID (для Editor). Подробная инструкция — в <code>TODO.md</code>.</li>
-            <li><strong>Откройте Editor</strong> и войдите через Google — при первом Pull появится запрос доступа к Sheets.</li>
-            <li><strong>Нажмите Pull</strong> — данные из таблицы загрузятся на холст.</li>
-            <li><strong>Рисуйте.</strong> Инструменты слева (или в drawer на мобильном), свойства объекта — справа (bottom sheet на мобильном).</li>
-            <li><strong>Push</strong> или <kbd>Ctrl</kbd>+<kbd>S</kbd> — сохранить изменения обратно в Google Sheets.</li>
-            <li><strong>Поделитесь ссылкой</strong> на <code>viewer.html</code> — зрители увидят схему без авторизации.</li>
-        </ol>
-    </section>
-
-    <section class="docs-section">
-        <h2>Горячие клавиши</h2>
-        <table class="docs-table">
-            <thead>
-            <tr><th>Клавиши</th><th>Действие</th></tr>
-            </thead>
-            <tbody>
-            <tr><td><kbd>V</kbd></td><td>Выбор / Select</td></tr>
-            <tr><td><kbd>R</kbd></td><td>Прямоугольник</td></tr>
-            <tr><td><kbd>D</kbd></td><td>Ромб</td></tr>
-            <tr><td><kbd>O</kbd></td><td>Круг / эллипс</td></tr>
-            <tr><td><kbd>L</kbd></td><td>Линия</td></tr>
-            <tr><td><kbd>A</kbd></td><td>Стрелка</td></tr>
-            <tr><td><kbd>T</kbd></td><td>Текст</td></tr>
-            <tr><td><kbd>P</kbd></td><td>Карандаш</td></tr>
-            <tr><td><kbd>E</kbd></td><td>Ластик</td></tr>
-            <tr><td><kbd>H</kbd> или <kbd>Space</kbd></td><td>Рука (панорамирование)</td></tr>
-            <tr><td><kbd>Ctrl</kbd>+<kbd>G</kbd></td><td>Сгруппировать</td></tr>
-            <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd></td><td>Разгруппировать</td></tr>
-            <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo / Redo</td></tr>
-            <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Push в Google Sheets</td></tr>
-            <tr><td><kbd>Del</kbd></td><td>Удалить выделенное</td></tr>
-            <tr><td><kbd>Esc</kbd></td><td>Снять выделение</td></tr>
-            <tr><td>Колесо мыши</td><td>Zoom (вокруг курсора)</td></tr>
-            <tr><td>Средняя кнопка / <kbd>Space</kbd>+ЛКМ</td><td>Панорамирование</td></tr>
-            </tbody>
-        </table>
-    </section>
-
-    <section class="docs-section">
-        <h2>Формат SheetLang</h2>
-        <p style="color: var(--text-dim); font-size: 14px; margin-bottom: 12px; line-height: 1.6;">
-            Каждая схема хранится в Google Sheets как текст: <strong>одна строка таблицы = одна фигура</strong>.
-            Строки, начинающиеся с <code>#</code>, — комментарии, пустые строки игнорируются.
-        </p>
-        <table class="docs-table">
-            <thead>
-            <tr><th>Тип</th><th>Синтаксис</th><th>Описание</th></tr>
-            </thead>
-            <tbody>
-            <tr><td><code>R</code></td><td><code>x,y,w,h,fill,stroke,sw</code></td><td>Прямоугольник</td></tr>
-            <tr><td><code>D</code></td><td><code>x,y,w,h,fill,stroke,sw</code></td><td>Ромб (bounding box)</td></tr>
-            <tr><td><code>C</code></td><td><code>cx,cy,rx,ry,fill,stroke,sw</code></td><td>Круг / эллипс (центр)</td></tr>
-            <tr><td><code>L</code></td><td><code>x1,y1,x2,y2,stroke,sw</code></td><td>Линия</td></tr>
-            <tr><td><code>A</code></td><td><code>x1,y1,x2,y2,stroke,sw</code></td><td>Стрелка</td></tr>
-            <tr><td><code>T</code></td><td><code>x,y,fontSize,color,text</code></td><td>Текст (без запятых)</td></tr>
-            <tr><td><code>G</code></td><td><code>n1,n2,...</code></td><td>Группа (1-based номера строк)</td></tr>
-            <tr><td><code>#</code></td><td><code># любой текст</code></td><td>Комментарий</td></tr>
-            </tbody>
-        </table>
-
-        <div class="docs-pre"><span class="cmt"># Scene 1</span>
-            R:100,200,80,60,#4a90d9,#ffffff,2
-            D:300,150,60,60,#4a90d9,#ffffff,2
-            C:500,200,40,40,#e74c3c,#ffffff,2
-            T:150,400,24,#ffffff,Hello Lore!
-            G:2,3</div>
-    </section>
-
-    <section class="docs-section">
-        <h2>Настройка Google Cloud</h2>
-        <ol class="docs-steps">
-            <li>Создайте проект на <a href="https://console.cloud.google.com" target="_blank" rel="noopener" style="color: var(--accent);">console.cloud.google.com</a>.</li>
-            <li>Включите <strong>Google Sheets API v4</strong> в разделе APIs &amp; Services → Library.</li>
-            <li>Создайте <strong>API Key</strong> (restricted to Google Sheets API) → вставьте в <code>CONFIG.apiKey</code> в <code>js/app.js</code>.</li>
-            <li>Создайте <strong>OAuth Client ID</strong> типа Web Application. Authorized JS origin: <code>https://ваш-домен.github.io</code>. Client ID → <code>CONFIG.googleClientId</code> в <code>js/editor-app.js</code>.</li>
-            <li>Откройте Google Sheet → Share: <strong>Anyone with the link (Viewer)</strong> для публичного чтения, редакторов добавьте по email.</li>
-        </ol>
-        <div class="docs-note">
-            <strong>Безопасность.</strong> Авторизация в Editor полностью клиентская — роли можно подделать через консоль браузера. Не используйте для чувствительных данных. Подробнее — в <code>AGENTS.md</code> и <code>TODO.md</code>.
-        </div>
-    </section>
-
-    <footer class="docs-footer">
-        Schema Studio · данные хранятся в Google Sheets · хостинг на GitHub Pages
-    </footer>
-</main>
+    Hotkeys.bind({
+      'v': () => location.href = 'view.html',
+      'e': () => location.href = 'login.html',
+      'd': () => Theme.toggle(),
+      '?': () => document.getElementById('hotkeyHelp').showModal(),
+      'h': () => document.getElementById('hotkeyHelp').showModal()
+    });
+  </script>
 </body>
 </html>

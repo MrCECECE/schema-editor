@@ -1,16 +1,50 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Schema Studio — Editor</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/screen.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js" defer></script>
-    <script src="https://accounts.google.com/gsi/client" defer></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Schema Studio — Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/screen.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js" defer></script>
+  <script src="https://accounts.google.com/gsi/client" defer></script>
+
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script>
+    if (!Auth.getSession()) {
+      location.replace('login.html');
+    }
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'schema_editor_session' && !e.newValue) {
+        location.replace('login.html');
+      }
+    });
+    window.addEventListener('pageshow', () => {
+      if (!Auth.getSession()) location.replace('login.html');
+    });
+  </script>
+
+  <script>
+    (function () {
+      const key = 'schema_editor_theme';
+      const saved = localStorage.getItem(key);
+      const theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
+  <link rel="stylesheet" href="assets/css/theme.css">
 </head>
 <body class="theme-dark">
+<script>
+  (function () {
+    const t = localStorage.getItem('schema_editor_theme')
+      || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.body.classList.toggle('theme-dark', t === 'dark');
+    document.body.classList.toggle('theme-light', t === 'light');
+  })();
+</script>
     <div class="screen">
         <header class="topbar">
             <div class="topbar-left">
@@ -21,8 +55,7 @@
             </div>
             <div class="topbar-right">
                 <span id="google-user" class="google-user hidden"></span>
-                <div id="google-signin-container" class="google-signin"></div>
-                <button id="btn-theme-toggle" class="btn-icon" title="Сменить тему">
+                <button id="btn-theme-toggle" class="btn-icon" title="Сменить тема">
                     <span class="theme-icon">🌙</span>
                 </button>
                 <button id="btn-export-png" class="btn btn-ghost" title="Экспорт в PNG">PNG</button>
@@ -179,6 +212,34 @@
         </footer>
     </div>
 
-    <script type="module" src="js/editor-app.js"></script>
+  <dialog id="hotkeyHelp">
+    <h2>Горячие клавиши редактора</h2>
+    <ul>
+      <li><b>V</b> — Выбор / Select</li>
+      <li><b>R</b> — Прямоугольник</li>
+      <li><b>D</b> — Ромб</li>
+      <li><b>O</b> — Круг / эллипс</li>
+      <li><b>L</b> — Линия</li>
+      <li><b>A</b> — Стрелка</li>
+      <li><b>T</b> — Текст</li>
+      <li><b>P</b> — Карандаш</li>
+      <li><b>E</b> — Ластик</li>
+      <li><b>H</b> / <b>Space</b> — Рука (панорамирование)</li>
+      <li><b>Ctrl+G</b> — Сгруппировать</li>
+      <li><b>Ctrl+Shift+G</b> — Разгруппировать</li>
+      <li><b>Ctrl+Z</b> / <b>Ctrl+Y</b> — Undo / Redo</li>
+      <li><b>Ctrl+S</b> — Push в Google Sheets</li>
+      <li><b>Del</b> — Удалить выделенное</li>
+      <li><b>Esc</b> — Снять выделение</li>
+      <li>Колесо мыши — Zoom (вокруг курсора)</li>
+      <li>Средняя кнопка / Space+ЛКМ — Панорамирование</li>
+      <li><b>?</b> — Эта справка</li>
+    </ul>
+    <button onclick="this.closest('dialog').close()">Закрыть</button>
+  </dialog>
+
+    <script type="module" src="assets/js/editor-app.js"></script>
+    <script src="assets/js/theme.js"></script>
+    <script src="assets/js/hotkeys.js"></script>
 </body>
 </html>
