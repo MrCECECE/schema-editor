@@ -2,6 +2,14 @@ import { getCanvas } from "./editor.js";
 
 let activeObject = null;
 
+function getThemeColors() {
+    const style = getComputedStyle(document.body);
+    return {
+        stroke: style.getPropertyValue("--obj-stroke").trim() || "#000000",
+        fill: style.getPropertyValue("--obj-fill").trim() || "#000000",
+    };
+}
+
 const propsNoSel = document.getElementById("props-no-selection");
 const propsSel = document.getElementById("props-selection");
 const el = {
@@ -23,6 +31,7 @@ export function initToolbarUI() {
 
 function onSelectionChanged() {
     const canvas = getCanvas();
+    if (!canvas) return;
     const obj = canvas.getActiveObject();
     activeObject = obj;
     if (!obj) {
@@ -37,49 +46,51 @@ function onSelectionChanged() {
 
 function syncProperties(obj) {
     syncLock = true;
+    const theme = getThemeColors();
     const iterObj = obj.type === "activeSelection" ? obj.getObjects()[0] || obj : obj;
-    el.fill.value = iterObj.fill && iterObj.fill !== "" ? iterObj.fill : "#000000";
-    el.stroke.value = iterObj.stroke && iterObj.stroke !== "" ? iterObj.stroke : "#000000";
-    el.strokeWidth.value = iterObj.strokeWidth != null ? iterObj.strokeWidth : 0;
-    el.fontSize.value = iterObj.fontSize != null ? iterObj.fontSize : 20;
-    el.opacity.value = obj.opacity != null ? obj.opacity : 1;
-    el.angle.value = obj.angle || 0;
-    el.locked.checked = !!obj.lockMovementX && !!obj.lockMovementY;
+    if (el.fill) el.fill.value = iterObj.fill && iterObj.fill !== "" ? iterObj.fill : theme.fill;
+    if (el.stroke) el.stroke.value = iterObj.stroke && iterObj.stroke !== "" ? iterObj.stroke : theme.stroke;
+    if (el.strokeWidth) el.strokeWidth.value = iterObj.strokeWidth != null ? iterObj.strokeWidth : 0;
+    if (el.fontSize) el.fontSize.value = iterObj.fontSize != null ? iterObj.fontSize : 20;
+    if (el.opacity) el.opacity.value = obj.opacity != null ? obj.opacity : 1;
+    if (el.angle) el.angle.value = obj.angle || 0;
+    if (el.locked) el.locked.checked = !!(obj.lockMovementX && obj.lockMovementY);
     syncLock = false;
 }
 
 function bindPropertyInputs() {
-    el.fill.addEventListener("input", () => {
+    if (el.fill) el.fill.addEventListener("input", () => {
         if (syncLock || !activeObject) return;
         applyToObjects("fill", el.fill.value);
     });
-    el.stroke.addEventListener("input", () => {
+    if (el.stroke) el.stroke.addEventListener("input", () => {
         if (syncLock || !activeObject) return;
         applyToObjects("stroke", el.stroke.value);
     });
-    el.strokeWidth.addEventListener("input", () => {
+    if (el.strokeWidth) el.strokeWidth.addEventListener("input", () => {
         if (syncLock || !activeObject) return;
         applyToObjects("strokeWidth", parseFloat(el.strokeWidth.value));
     });
-    el.fontSize.addEventListener("input", () => {
+    if (el.fontSize) el.fontSize.addEventListener("input", () => {
         if (syncLock || !activeObject) return;
         applyToObjects("fontSize", parseFloat(el.fontSize.value));
     });
-    el.opacity.addEventListener("input", () => {
+    if (el.opacity) el.opacity.addEventListener("input", () => {
         if (syncLock || !activeObject) return;
         applyToObjects("opacity", parseFloat(el.opacity.value));
     });
-    el.angle.addEventListener("input", () => {
+    if (el.angle) el.angle.addEventListener("input", () => {
         if (syncLock || !activeObject) return;
         applyToObjects("angle", parseFloat(el.angle.value));
     });
-    el.locked.addEventListener("change", () => {
+    if (el.locked) el.locked.addEventListener("change", () => {
         if (syncLock || !activeObject) return;
         applyToObjects("locked", el.locked.checked);
     });
 
     ["fill", "stroke", "strokeWidth", "fontSize", "opacity", "angle", "locked"].forEach((name) => {
         const input = el[name];
+        if (!input) return;
         input.addEventListener("change", () => {
             const canvas = getCanvas();
             canvas.requestRenderAll();
@@ -92,28 +103,17 @@ function bindPropertyInputs() {
 function applyToObjects(prop, value) {
     const canvas = getCanvas();
     const obj = activeObject;
+    if (!obj) return;
     const objects = obj.type === "activeSelection" ? obj.getObjects() : [obj];
 
     objects.forEach((o) => {
         switch (prop) {
-            case "fill":
-                o.set({ fill: value });
-                break;
-            case "stroke":
-                o.set({ stroke: value });
-                break;
-            case "strokeWidth":
-                o.set({ strokeWidth: value });
-                break;
-            case "fontSize":
-                if (o.fontSize != null) o.set({ fontSize: value });
-                break;
-            case "opacity":
-                o.set({ opacity: value });
-                break;
-            case "angle":
-                o.set({ angle: value });
-                break;
+            case "fill": o.set({ fill: value }); break;
+            case "stroke": o.set({ stroke: value }); break;
+            case "strokeWidth": o.set({ strokeWidth: value }); break;
+            case "fontSize": if (o.fontSize != null) o.set({ fontSize: value }); break;
+            case "opacity": o.set({ opacity: value }); break;
+            case "angle": o.set({ angle: value }); break;
             case "locked":
                 o.set({ lockMovementX: value, lockMovementY: value, hasControls: !value, hasBorders: !value, lockRotation: value, lockScalingX: value, lockScalingY: value });
                 break;

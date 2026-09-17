@@ -1,14 +1,17 @@
-import { initEditor, getCanvas, setCurrentTool, toggleGrid, zoomIn, zoomOut, resetZoom, updateZoomUI, groupSelected, ungroupSelected, deleteSelected, addText } from "./editor.js";
+import { initEditor, getCanvas, toggleGrid, setCurrentTool, zoomIn, zoomOut, resetZoom, updateZoomUI, groupSelected, ungroupSelected, deleteSelected, addText, getCanvasBgColor, updateObjectsForTheme, setViewOnlyMode } from "./editor.js";
 import { createHistory } from "./history.js";
-import { initToolbarUI } from "./toolbar.js";
 import { parseLines, renderOnCanvas, encodeCanvas } from "./sheetlang.js";
 import { setSession, getSession, logout } from "./auth.js";
 import { ICONS } from "./icons.js";
 
 const CONFIG = {
     sheetsId: "1e3ut8uuhbwHS0ZpZL-VWvP886mBXwgFUzSRrjkQS15k",
+    // Google OAuth: поставьте свой Client ID из console.cloud.google.com
+    // Чтобы включить: Google Cloud Console → Credentials → OAuth 2.0 Client ID
+    // Authorized JavaScript origins: http://localhost:8099 (или ваш домен)
     googleClientId: "959024824195-qgn1g80lac013lniqan8gk7j1lod9l64.apps.googleusercontent.com",
     scopes: "openid email https://www.googleapis.com/auth/spreadsheets",
+    refreshInterval: 86400000,
 };
 
 const AppState = {
@@ -18,7 +21,12 @@ const AppState = {
     googleUser: null,
     tokenClient: null,
     tokenResolve: null,
+    isMobile: false,
 };
+
+function detectMobile() {
+    return window.innerWidth <= 900 || "ontouchstart" in window;
+}
 
 function paintIcons() {
     document.querySelectorAll(".tool-btn[data-tool]").forEach((btn) => {
@@ -32,15 +40,186 @@ function paintIcons() {
     });
 }
 
+function initTheme() {
+    const saved = localStorage.getItem("schema-theme") || "dark";
+    document.body.className = "theme-" + saved;
+    updateThemeIcon(saved);
+}
+
+function toggleTheme() {
+    const current = document.body.className.includes("dark") ? "dark" : "light";
+    const next = current === "dark" ? "light" : "dark";
+    document.body.className = "theme-" + next;
+    localStorage.setItem("schema-theme", next);
+    updateThemeIcon(next);
+    if (AppState.canvas) {
+        updateObjectsForTheme();
+        AppState.canvas.setBackgroundColor(getCanvasBgColor());
+        AppState.canvas.renderAll();
+    }
+}
+
+function updateThemeIcon(theme) {
+    const icon = document.querySelector(".theme-icon");
+    if (icon) {
+        icon.textContent = theme === "dark" ? "🌙" : "☀️";
+    }
+}
+
+let bottomSheet = null;
+
 function init() {
+    try {
+        if (typeof fabric === "undefined") {
+            showFatalError("Fabric.js не загрузился.");
+            return;
+        }
+        AppState.isMobile = detectMobile();
+        initTheme();
+        setupDrawer();
+        setupBottomSheet();
+
+        const themeBtn = document.getElementById("btn-theme-toggle");
+        if (themeBtn) {
+            themeBtn.addEventListener("click", toggleTheme);
+        }
+
+        window.addEventListener("resize", onResize);
+
     const session = getSession();
-    if (session && session.googleToken) {
+    if (session && session.googleToken && CONFIG.googleClientId && CONFIG.googleClientId.indexOf("googleusercontent") !== -1) {
         AppState.googleToken = session.googleToken;
         AppState.googleUser = { username: session.email || "unknown" };
-        showEditor();
-    } else {
+    }
+    showEditor();
+    if (document.getElementById("google-signin-container") && CONFIG.googleClientId) {
         initGoogleSignIn();
     }
+    } catch (e) {
+        console.error("Init failed:", e);
+        showFatalError("Ошибка инициализации: " + (e && e.message ? e.message : "unknown"));
+    }
+}
+
+function showFatalError(msg) {
+    const container = document.getElementById("canvas-container");
+    if (container) {
+        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#f87171;font-size:14px;text-align:center;padding:40px;">' + msg + "</div>";
+    }
+}
+
+function onResize() {
+    const wasMobile = AppState.isMobile;
+    AppState.isMobile = detectMobile();
+    if (wasMobile !== AppState.isMobile) {
+        panelToggleBound = false;
+        rebuildBottomSheet();
+        bindPanelToggle();
+    }
+    if (AppState.canvas) {
+        fitCanvas();
+    }
+}
+
+function fitCanvas() {
+    if (!AppState.canvas) return;
+    const container = document.getElementById("canvas-container");
+    if (!container || !container.parentElement) return;
+    const maxW = container.parentElement.clientWidth - 40;
+    const maxH = container.parentElement.clientHeight - 40;
+    if (maxW > 0 && maxH > 0) {
+        const zoom = Math.min(maxW / 1000, maxH / 700, 1);
+        AppState.canvas.setZoom(zoom);
+        AppState.canvas.renderAll();
+        updateZoomUI();
+    }
+}
+
+function setupDrawer() {
+    const toggle = document.getElementById("drawer-toggle");
+    const drawer = document.getElementById("toolbar-drawer");
+    const close = document.getElementById("drawer-close");
+    const backdrop = document.getElementById("drawer-backdrop");
+    if (!toggle || !drawer) return;
+
+    function openDrawer() {
+        drawer.classList.add("open");
+        backdrop.classList.remove("hidden");
+    }
+
+    function closeDrawer() {
+        drawer.classList.remove("open");
+        backdrop.classList.add("hidden");
+    }
+
+    toggle.addEventListener("click", openDrawer);
+    if (close) { close.title = "Закрыть панель"; close.addEventListener("click", closeDrawer); }
+    if (backdrop) backdrop.addEventListener("click", closeDrawer);
+}
+
+let panelToggleBound = false;
+
+function setupBottomSheet() {
+    if (window.innerWidth > 900) return;
+
+    const panel = document.getElementById("properties-panel");
+    if (!panel) return;
+    bindPanelToggle();
+    rebuildBottomSheet();
+}
+
+function bindPanelToggle() {
+    if (panelToggleBound) return;
+    const openBtn = document.getElementById("panel-toggle");
+    if (openBtn) {
+        openBtn.addEventListener("click", () => {
+            if (bottomSheet) bottomSheet.classList.toggle("open");
+        });
+        panelToggleBound = true;
+    }
+}
+
+function rebuildBottomSheet() {
+    if (bottomSheet) {
+        bottomSheet.remove();
+        bottomSheet = null;
+    }
+
+    const isMobile = window.innerWidth <= 900;
+
+    if (!isMobile) {
+        const panel = document.getElementById("properties-panel");
+        if (!panel) return;
+        const hint = panel.querySelector(".props-hint");
+        const fields = panel.querySelector(".props-fields");
+        if (hint && hint.parentElement !== panel) panel.appendChild(hint);
+        if (fields && fields.parentElement !== panel) panel.appendChild(fields);
+        hint.classList.remove("hidden");
+        return;
+    }
+
+    const panel = document.getElementById("properties-panel");
+    if (!panel) return;
+
+    bottomSheet = document.createElement("aside");
+    bottomSheet.id = "props-bottom-sheet";
+    bottomSheet.className = "bottom-sheet";
+
+    const handle = document.createElement("div");
+    handle.className = "bottom-sheet-handle";
+    bottomSheet.appendChild(handle);
+
+    panel.querySelectorAll(".props-hint, .props-fields").forEach((el) => {
+        bottomSheet.appendChild(el);
+    });
+
+    document.body.appendChild(bottomSheet);
+
+    bottomSheet.addEventListener("click", (e) => {
+        if (e.target === bottomSheet) {
+            bottomSheet.classList.remove("open");
+        }
+    });
 }
 
 function ensureTokenClient() {
@@ -67,7 +246,8 @@ function initGoogleSignIn() {
     const btn = document.createElement("button");
     btn.id = "btn-google-login";
     btn.className = "btn btn-google";
-    btn.textContent = "Sign in with Google";
+    btn.type = "button";
+    btn.innerHTML = '<span class="google-icon">G</span> Войти через Google';
     btn.addEventListener("click", () => {
         requestAccessToken();
     });
@@ -135,33 +315,32 @@ function showEditor() {
     paintIcons();
     AppState.canvas = initEditor();
     AppState.history = createHistory(AppState.canvas);
-    initToolbarUI();
     bindToolbar();
     bindHotkeys();
     bindStatus();
 
-    setSignedInUI(true);
+    setTimeout(() => {
+        fitCanvas();
+        if (AppState.isMobile) rebuildBottomSheet();
+    }, 0);
 
-    document.getElementById("status-user").textContent = "Google: " + AppState.googleUser.username;
+    if (AppState.googleToken && CONFIG.googleClientId) {
+        setSignedInUI(true);
+    } else {
+        setSignedInUI(false);
+    }
+
+    const userEl = document.getElementById("status-user");
+    if (userEl && AppState.googleUser) userEl.textContent = "Google: " + AppState.googleUser.username;
 
     pullFromSheets();
 }
 
 function setSignedInUI(signedIn) {
-    const gh = document.getElementById("google-signin-container");
-    const gu = document.getElementById("google-user");
     ["btn-pull", "btn-push", "btn-export-png", "btn-export-svg", "btn-signout"].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.style.display = signedIn ? "" : "none";
     });
-    if (signedIn) {
-        gh.style.display = "none";
-        gu.classList.remove("hidden");
-        gu.textContent = AppState.googleUser.username;
-    } else {
-        gh.style.display = "";
-        gu.classList.add("hidden");
-    }
 }
 
 async function pullFromSheets() {
@@ -189,6 +368,7 @@ async function pullFromSheets() {
         if (lines.length > 0) {
             const { objects, groups } = parseLines(lines);
             renderOnCanvas(AppState.canvas, objects, groups);
+            updateObjectsForTheme();
             AppState.history.saveState();
             setSaveStatus("Loaded from Sheets ✓", "ok");
         } else {
@@ -269,26 +449,56 @@ function bindToolbar() {
                 return;
             }
             document.querySelectorAll(".tool-btn[data-tool]").forEach((b) => {
-                b.classList.toggle("active", b === btn && ["select", "rectangle", "diamond", "circle", "line", "arrow", "text", "pencil", "eraser"].includes(tool));
+                b.classList.toggle("active", b === btn && ["select", "rectangle", "diamond", "circle", "line", "arrow", "text", "pencil", "eraser", "hand"].includes(tool));
             });
             if (tool === "text") addText();
+            if (tool === "hand") { /* нет доп. действия, setCurrentTool ниже */ }
             setCurrentTool(tool);
         });
     });
 
-    document.getElementById("btn-zoom-in").addEventListener("click", () => { zoomIn(); updateZoomUI(); });
-    document.getElementById("btn-zoom-out").addEventListener("click", () => { zoomOut(); updateZoomUI(); });
-    document.getElementById("btn-zoom-reset").addEventListener("click", () => { resetZoom(); updateZoomUI(); });
-    document.getElementById("btn-grid").addEventListener("click", () => {
-        const on = toggleGrid();
-        document.getElementById("btn-grid").classList.toggle("active", on);
-    });
+    const zoomInBtn = document.getElementById("btn-zoom-in");
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener("click", () => {
+            const canvas = getCanvas();
+            if (canvas) { zoomIn(); updateZoomUI(); }
+            else console.warn("Canvas not available for zoomIn");
+        });
+    }
+    const zoomOutBtn = document.getElementById("btn-zoom-out");
+    if (zoomOutBtn) {
+        zoomOutBtn.addEventListener("click", () => {
+            const canvas = getCanvas();
+            if (canvas) { zoomOut(); updateZoomUI(); }
+            else console.warn("Canvas not available for zoomOut");
+        });
+    }
+    const zoomResetBtn = document.getElementById("btn-zoom-reset");
+    if (zoomResetBtn) {
+        zoomResetBtn.addEventListener("click", () => {
+            const canvas = getCanvas();
+            if (canvas) { resetZoom(); updateZoomUI(); }
+            else console.warn("Canvas not available for resetZoom");
+        });
+    }
+    const gridBtn = document.getElementById("btn-grid");
+    if (gridBtn) {
+        gridBtn.addEventListener("click", () => {
+            const on = toggleGrid();
+            gridBtn.classList.toggle("active", on);
+        });
+    }
 
-    document.getElementById("btn-pull").addEventListener("click", pullFromSheets);
-    document.getElementById("btn-push").addEventListener("click", pushToSheets);
-    document.getElementById("btn-signout").addEventListener("click", signOut);
-    document.getElementById("btn-export-png").addEventListener("click", exportPNG);
-    document.getElementById("btn-export-svg").addEventListener("click", exportSVG);
+    const pullBtn = document.getElementById("btn-pull");
+    if (pullBtn) pullBtn.addEventListener("click", pullFromSheets);
+    const pushBtn = document.getElementById("btn-push");
+    if (pushBtn) pushBtn.addEventListener("click", pushToSheets);
+    const signoutBtn = document.getElementById("btn-signout");
+    if (signoutBtn) signoutBtn.addEventListener("click", signOut);
+    const exportPngBtn = document.getElementById("btn-export-png");
+    if (exportPngBtn) exportPngBtn.addEventListener("click", exportPNG);
+    const exportSvgBtn = document.getElementById("btn-export-svg");
+    if (exportSvgBtn) exportSvgBtn.addEventListener("click", exportSVG);
 }
 
 function signOut() {
@@ -296,9 +506,7 @@ function signOut() {
         if (AppState.googleToken && typeof google !== "undefined" && google.accounts && google.accounts.oauth2 && google.accounts.oauth2.revoke) {
             google.accounts.oauth2.revoke(AppState.googleToken, () => {});
         }
-    } catch {
-        /* ignore revoke errors */
-    }
+    } catch { /* ignore revoke errors */ }
     logout();
     AppState.googleToken = null;
     AppState.googleUser = null;
@@ -309,57 +517,48 @@ function signOut() {
 
 function bindHotkeys() {
     document.addEventListener("keydown", (e) => {
+        if (!AppState.canvas) return;
         const tag = document.activeElement && document.activeElement.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA") {
-            if (AppState.canvas.getActiveObject() && AppState.canvas.getActiveObject().isEditing) return;
-        }
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        const active = AppState.canvas.getActiveObject();
+        if (active && active.isEditing) return;
 
         const ctrl = e.ctrlKey || e.metaKey;
 
-        if (ctrl && e.key.toLowerCase() === "s") {
-            e.preventDefault();
-            pushToSheets();
-        } else if (ctrl && e.key.toLowerCase() === "z") {
-            e.preventDefault();
-            AppState.history.undo();
-        } else if (ctrl && e.key.toLowerCase() === "y") {
-            e.preventDefault();
-            AppState.history.redo();
-        } else if (ctrl && e.shiftKey && e.key.toLowerCase() === "g") {
-            e.preventDefault();
-            ungroupSelected();
-        } else if (ctrl && e.key.toLowerCase() === "g") {
-            e.preventDefault();
-            groupSelected();
-        } else if (e.key === "Delete") {
-            deleteSelected();
-        } else if (e.key === "Escape") {
-            AppState.canvas.discardActiveObject();
-            AppState.canvas.requestRenderAll();
-        } else if (e.key.toLowerCase() === "v") { setCurrentTool("select"); activateTool("select"); }
-        else if (e.key.toLowerCase() === "r") { setCurrentTool("rectangle"); activateTool("rectangle"); }
-        else if (e.key.toLowerCase() === "d") { setCurrentTool("diamond"); activateTool("diamond"); }
-        else if (e.key.toLowerCase() === "o") { setCurrentTool("circle"); activateTool("circle"); }
-        else if (e.key.toLowerCase() === "l") { setCurrentTool("line"); activateTool("line"); }
-        else if (e.key.toLowerCase() === "a") { setCurrentTool("arrow"); activateTool("arrow"); }
-        else if (e.key.toLowerCase() === "t") { addText(); activateTool("text"); }
-        else if (e.key.toLowerCase() === "p") { setCurrentTool("pencil"); activateTool("pencil"); }
-        else if (e.key.toLowerCase() === "e") { setCurrentTool("eraser"); activateTool("eraser"); }
+        if (ctrl && e.code === "KeyS") { e.preventDefault(); pushToSheets(); }
+        else if (ctrl && e.code === "KeyZ") { e.preventDefault(); AppState.history.undo(); }
+        else if (ctrl && e.code === "KeyY") { e.preventDefault(); AppState.history.redo(); }
+        else if (ctrl && e.shiftKey && e.code === "KeyG") { e.preventDefault(); ungroupSelected(); }
+        else if (ctrl && e.code === "KeyG") { e.preventDefault(); groupSelected(); }
+        else if (e.code === "Delete") { deleteSelected(); }
+        else if (e.code === "Escape") { AppState.canvas.discardActiveObject(); AppState.canvas.requestRenderAll(); }
+        else if (e.code === "KeyV") { setCurrentTool("select"); activateTool("select"); }
+        else if (e.code === "KeyH") { setCurrentTool("hand"); activateTool("hand"); }
+        else if (e.code === "KeyR") { setCurrentTool("rectangle"); activateTool("rectangle"); }
+        else if (e.code === "KeyD") { setCurrentTool("diamond"); activateTool("diamond"); }
+        else if (e.code === "KeyO") { setCurrentTool("circle"); activateTool("circle"); }
+        else if (e.code === "KeyL") { setCurrentTool("line"); activateTool("line"); }
+        else if (e.code === "KeyA") { setCurrentTool("arrow"); activateTool("arrow"); }
+        else if (e.code === "KeyT") { addText(); activateTool("text"); }
+        else if (e.code === "KeyP") { setCurrentTool("pencil"); activateTool("pencil"); }
+        else if (e.code === "KeyE") { setCurrentTool("eraser"); activateTool("eraser"); }
     });
 }
 
 function activateTool(tool) {
     document.querySelectorAll(".tool-btn[data-tool]").forEach((b) => {
-        b.classList.toggle("active", b.dataset.tool === tool && ["select", "rectangle", "diamond", "circle", "line", "arrow", "text", "pencil", "eraser"].includes(tool));
+        b.classList.toggle("active", b.dataset.tool === tool && ["select", "rectangle", "diamond", "circle", "line", "arrow", "text", "pencil", "eraser", "hand"].includes(tool));
     });
 }
 
 function bindStatus() {
     document.addEventListener("coords:update", (e) => {
-        document.getElementById("status-coords").textContent = "x: " + e.detail.x + ", y: " + e.detail.y;
+        const el = document.getElementById("status-coords");
+        if (el) el.textContent = "x: " + e.detail.x + ", y: " + e.detail.y;
     });
     document.addEventListener("zoom:changed", (e) => {
-        document.getElementById("status-zoom").textContent = e.detail.zoom + "%";
+        const el = document.getElementById("status-zoom");
+        if (el) el.textContent = e.detail.zoom + "%";
     });
 }
 
@@ -392,11 +591,26 @@ function download(url, filename) {
     document.body.removeChild(a);
 }
 
-document.addEventListener("canvas:dirty", () => {
-    // future: auto-push to sheets
-});
+document.addEventListener("canvas:dirty", () => {});
 document.addEventListener("history:request", () => {
     if (AppState.history) AppState.history.saveState();
+});
+
+window.addEventListener("resize", () => {
+    if (AppState.canvas) {
+        const container = document.getElementById("canvas-container");
+        if (container) {
+            const maxW = container.parentElement.clientWidth - 40;
+            const maxH = container.parentElement.clientHeight - 40;
+            if (maxW > 0 && maxH > 0) {
+                const zoomX = maxW / 1000;
+                const zoomY = maxH / 700;
+                const zoom = Math.min(zoomX, zoomY, 1);
+                AppState.canvas.setZoom(zoom);
+                updateZoomUI();
+            }
+        }
+    }
 });
 
 init();

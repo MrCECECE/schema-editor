@@ -8,6 +8,7 @@ export const ICONS = {
     text: `<svg viewBox="0 0 24 24"><path d="M5 5 H19 V8 M12 5 V19 M9 19 H15" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,
     pencil: `<svg viewBox="0 0 24 24"><path d="M4 20 L4 15 L15 4 L20 9 L9 20 Z M13 6 L18 11" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
     eraser: `<svg viewBox="0 0 24 24"><path d="M9 3 L21 15 L15 20 L3 8 Z" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
+    hand: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V16a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5v-4.5a1.5 1.5 0 0 1 3 0"/></svg>`,
     group: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
     ungroup: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 3 H21 V11" fill="none" stroke="currentColor" stroke-width="2"/><rect x="13" y="13" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,
     delete: `<svg viewBox="0 0 24 24"><path d="M6 7 L18 7 M9 7 V5 H15 V7 M8 7 L9 19 H15 L16 7" fill="none" stroke="currentColor" stroke-width="2"/></svg>`,

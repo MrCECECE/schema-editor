@@ -3,23 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Schema Editor</title>
-    <link rel="stylesheet" href="css/style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <title>Schema Studio — Editor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/screen.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js" defer></script>
     <script src="https://accounts.google.com/gsi/client" defer></script>
 </head>
-<body>
-    <div id="editor-screen" class="screen">
+<body class="theme-dark">
+    <div class="screen">
         <header class="topbar">
             <div class="topbar-left">
-                <span id="file-name" class="file-name">schema.json</span>
+                <button id="drawer-toggle" class="btn-icon" title="Меню">
+                    <span class="dots">⋮</span>
+                </button>
                 <span id="save-status" class="save-status">—</span>
-                <span id="google-user" class="google-user hidden"></span>
-                <div id="google-signin-container" class="google-signin"></div>
             </div>
             <div class="topbar-right">
-                <button id="btn-pull" class="btn btn-ghost" title="Загрузить из Google Sheets">Pull</button>
-                <button id="btn-push" class="btn btn-ghost" title="Сохранить в Google Sheets">Push</button>
+                <span id="google-user" class="google-user hidden"></span>
+                <div id="google-signin-container" class="google-signin"></div>
+                <button id="btn-theme-toggle" class="btn-icon" title="Сменить тему">
+                    <span class="theme-icon">🌙</span>
+                </button>
                 <button id="btn-export-png" class="btn btn-ghost" title="Экспорт в PNG">PNG</button>
                 <button id="btn-export-svg" class="btn btn-ghost" title="Экспорт в SVG">SVG</button>
                 <button id="btn-signout" class="btn btn-danger">Выйти</button>
@@ -27,31 +32,91 @@
         </header>
 
         <div class="workspace">
-            <aside class="toolbar">
-                <div class="tool-group-label">Инструменты</div>
-                <div class="tool-group">
-                    <button class="tool-btn active" data-tool="select" title="Выбор (V)"></button>
-                    <button class="tool-btn" data-tool="rectangle" title="Прямоугольник (R)"></button>
-                    <button class="tool-btn" data-tool="diamond" title="Ромб (D)"></button>
-                    <button class="tool-btn" data-tool="circle" title="Круг (O)"></button>
-                    <button class="tool-btn" data-tool="line" title="Линия (L)"></button>
-                    <button class="tool-btn" data-tool="arrow" title="Стрелка (A)"></button>
-                    <button class="tool-btn" data-tool="text" title="Текст (T)"></button>
-                    <button class="tool-btn" data-tool="pencil" title="Карандаш (P)"></button>
-                    <button class="tool-btn" data-tool="eraser" title="Ластик (E)"></button>
+            <!-- Drawer overlay for mobile -->
+            <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+
+            <aside id="toolbar-drawer" class="drawer">
+                <div class="drawer-header">
+                    <span class="drawer-title">Инструменты</span>
+                <button id="drawer-close" class="btn-icon" title="Закрыть">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>
+                </button>
                 </div>
-                <div class="tool-group-label">Объекты</div>
-                <div class="tool-group">
-                    <button class="tool-btn" data-tool="group" title="Группировать (Ctrl+G)"></button>
-                    <button class="tool-btn" data-tool="ungroup" title="Разгруппировать (Ctrl+Shift+G)"></button>
-                    <button class="tool-btn" data-tool="delete" title="Удалить (Del)"></button>
+
+                <!-- Инструменты -->
+                <div class="drawer-section">
+                    <div class="drawer-section-title">Кисть</div>
+                    <div class="tool-group">
+                        <button class="tool-btn" data-tool="select" title="Выбор (V)">
+                            <svg><use href="assets/icons/icons.svg#select"></use></svg>
+                        </button>
+                        <button class="tool-btn" data-tool="rectangle" title="Прямоугольник (R)">
+                            <svg><use href="assets/icons/icons.svg#rectangle"></use></svg>
+                        </button>
+                        <button class="tool-btn" data-tool="diamond" title="Ромб (D)">
+                            <svg><use href="assets/icons/icons.svg#diamond"></use></svg>
+                        </button>
+                        <button class="tool-btn" data-tool="circle" title="Круг (O)">
+                            <svg><use href="assets/icons/icons.svg#circle"></use></svg>
+                        </button>
+                        <button class="tool-btn" data-tool="line" title="Линия (L)">
+                            <svg><use href="assets/icons/icons.svg#line"></use></svg>
+                        </button>
+                        <button class="tool-btn" data-tool="arrow" title="Стрелка (A)">
+                            <svg><use href="assets/icons/icons.svg#arrow"></use></svg>
+                        </button>
+                    </div>
                 </div>
-                <div class="tool-group-label">Вид</div>
-                <div class="tool-group">
-                    <button id="btn-zoom-in" class="tool-btn" title="Приблизить"></button>
-                    <button id="btn-zoom-out" class="tool-btn" title="Отдалить"></button>
-                    <button id="btn-zoom-reset" class="tool-btn" title="100%"></button>
-                    <button id="btn-grid" class="tool-btn active" title="Показать/скрыть сетку"></button>
+
+                <div class="drawer-section">
+                    <div class="drawer-section-title">Текст & карандас</div>
+                    <div class="tool-group">
+                        <button class="tool-btn" data-tool="text" title="Текст (T)">
+                            <svg><use href="assets/icons/icons.svg#text"></use></svg>
+                        </button>
+                        <button class="tool-btn" data-tool="pencil" title="Карандаш (P)">
+                            <svg><use href="assets/icons/icons.svg#pencil"></use></svg>
+                        </button>
+                        <button class="tool-btn" data-tool="eraser" title="Ластик (E)">
+                            <svg><use href="assets/icons/icons.svg#eraser"></use></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="drawer-section">
+                    <div class="drawer-section-title">Группы</div>
+                    <div class="tool-group">
+                        <button class="tool-btn" data-tool="group" title="Группировать (Ctrl+G)">
+                            <svg><use href="assets/icons/icons.svg#group"></use></svg>
+                        </button>
+                        <button class="tool-btn" data-tool="ungroup" title="Разгруппировать (Ctrl+Shift+G)">
+                            <svg><use href="assets/icons/icons.svg#ungroup"></use></svg>
+                        </button>
+                        <button class="tool-btn" data-tool="delete" title="Удалить (Del)">
+                            <svg><use href="assets/icons/icons.svg#delete"></use></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="drawer-section">
+                    <div class="drawer-section-title">Вид</div>
+                    <div class="tool-group">
+                        <button class="tool-btn" data-tool="hand" title="Рука (H или Space)">
+                            <svg><use href="assets/icons/icons.svg#hand"></use></svg>
+                        </button>
+                        <button id="btn-zoom-in" class="tool-btn" title="Приблизить">
+                            <svg><use href="assets/icons/icons.svg#zoomIn"></use></svg>
+                        </button>
+                        <button id="btn-zoom-out" class="tool-btn" title="Отдалить">
+                            <svg><use href="assets/icons/icons.svg#zoomOut"></use></svg>
+                        </button>
+                        <button id="btn-zoom-reset" class="tool-btn" title="100%">
+                            <svg><use href="assets/icons/icons.svg#zoomReset"></use></svg>
+                        </button>
+                        <button id="btn-grid" class="tool-btn active" title="Показать/скрыть сетку">
+                            <svg><use href="assets/icons/icons.svg#grid"></use></svg>
+                        </button>
+                    </div>
                 </div>
             </aside>
 
@@ -61,30 +126,46 @@
                 </div>
             </main>
 
-            <aside class="properties-panel">
-                <div class="panel-group-label">Свойства</div>
-                <div id="props-no-selection" class="props-hint">Выберите объект на холсте</div>
+            <!-- Properties panel — bottom sheet on mobile -->
+            <aside id="properties-panel" class="properties-panel">
+                <div class="panel-header">
+                    <span class="panel-title">Свойства</span>
+                <button id="panel-toggle" class="btn-icon" title="Свойства">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+                </button>
+                </div>
+
+                <div id="props-no-selection" class="props-hint">
+                    Выберите объект на холсте
+                </div>
                 <div id="props-selection" class="props-fields hidden">
-                    <label class="props-label" for="prop-fill">Заливка</label>
-                    <input type="color" id="prop-fill" value="#4a90d9">
-
-                    <label class="props-label" for="prop-stroke">Обводка</label>
-                    <input type="color" id="prop-stroke" value="#ffffff">
-
-                    <label class="props-label" for="prop-stroke-width">Толщина обводки</label>
-                    <input type="range" id="prop-stroke-width" min="0" max="20" value="2">
-
-                    <label class="props-label" for="prop-font-size">Размер шрифта</label>
-                    <input type="number" id="prop-font-size" min="8" max="200" value="20">
-
-                    <label class="props-label" for="prop-opacity">Прозрачность</label>
-                    <input type="range" id="prop-opacity" min="0" max="1" step="0.05" value="1">
-
-                    <label class="props-label" for="prop-angle">Поворот (°)</label>
-                    <input type="number" id="prop-angle" min="-360" max="360" value="0">
-
-                    <label class="props-checkbox-label" for="prop-locked">
-                        <input type="checkbox" id="prop-locked"> Заблокировать
+                    <div class="prop-group">
+                        <label class="prop-label">Заливка</label>
+                        <input type="color" id="prop-fill" value="#4a90d9">
+                    </div>
+                    <div class="prop-group">
+                        <label class="prop-label">Обводка</label>
+                        <input type="color" id="prop-stroke" value="#ffffff">
+                    </div>
+                    <div class="prop-group">
+                        <label class="prop-label">Толщина обводки</label>
+                        <input type="range" id="prop-stroke-width" min="0" max="20" value="2">
+                    </div>
+                    <div class="prop-group">
+                        <label class="prop-label">Размер шрифта</label>
+                        <input type="number" id="prop-font-size" min="8" max="200" value="20">
+                    </div>
+                    <div class="prop-group">
+                        <label class="prop-label">Прозрачность</label>
+                        <input type="range" id="prop-opacity" min="0" max="1" step="0.05" value="1">
+                    </div>
+                    <div class="prop-group">
+                        <label class="prop-label">Поворот (°)</label>
+                        <input type="number" id="prop-angle" min="-360" max="360" value="0">
+                    </div>
+                    <label class="prop-checkbox-label">
+                        <input type="checkbox" id="prop-locked">
+                        Заблокировать
                     </label>
                 </div>
             </aside>
@@ -93,7 +174,7 @@
         <footer class="statusbar">
             <span id="status-zoom">100%</span>
             <span id="status-coords">x: 0, y: 0</span>
-            <span id="status-mode">Редактирование</span>
+            <span id="status-mode">Редактор</span>
             <span id="status-user"></span>
         </footer>
     </div>

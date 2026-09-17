@@ -3,40 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Schema Viewer</title>
-    <link rel="stylesheet" href="css/style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <title>Schema Studio — Viewer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/screen.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js" defer></script>
 </head>
-<body>
-    <div id="editor-screen" class="screen">
+<body class="theme-dark">
+    <div class="screen">
         <header class="topbar">
-            <div class="topbar-left">
-                <span id="file-name" class="file-name">schema.json</span>
-                <span id="save-status" class="save-status">—</span>
-            </div>
+<div class="topbar-left">
+            <span id="save-status" class="save-status">—</span>
+        </div>
             <div class="topbar-right">
+                <button id="btn-theme-toggle" class="btn-icon" title="Сменить тему">
+                    <span class="theme-icon">🌙</span>
+                </button>
                 <button id="btn-export-png" class="btn btn-ghost" title="Экспорт в PNG">PNG</button>
                 <button id="btn-export-svg" class="btn btn-ghost" title="Экспорт в SVG">SVG</button>
             </div>
         </header>
 
-        <div class="workspace">
-            <aside class="toolbar">
-                <div class="tool-group-label">Вид</div>
-                <div class="tool-group">
-                    <button id="btn-zoom-in" class="tool-btn" title="Приблизить"></button>
-                    <button id="btn-zoom-out" class="tool-btn" title="Отдалить"></button>
-                    <button id="btn-zoom-reset" class="tool-btn" title="100%"></button>
-                    <button id="btn-grid" class="tool-btn active" title="Показать/скрыть сетку"></button>
-                </div>
-            </aside>
-
-            <main class="canvas-area">
-                <div id="canvas-container">
-                    <canvas id="schema-canvas"></canvas>
-                </div>
-            </main>
-        </div>
+        <main class="canvas-area-full">
+            <div id="canvas-container">
+                <canvas id="schema-canvas"></canvas>
+            </div>
+            <div class="floating-controls">
+                <button id="btn-zoom-in" class="btn-icon" title="Приблизить">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M16 16 L21 21 M11 8 V14 M8 11 H14"/></svg>
+                </button>
+                <button id="btn-zoom-out" class="btn-icon" title="Отдалить">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M16 16 L21 21 M8 11 H14"/></svg>
+                </button>
+                <button id="btn-zoom-reset" class="btn-icon" title="100%">100%</button>
+            </div>
+        </main>
 
         <footer class="statusbar">
             <span id="status-zoom">100%</span>

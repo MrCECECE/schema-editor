@@ -1,3 +1,16 @@
+import { getCanvasBgColor } from "./editor.js";
+
+const fabric = window.fabric;
+
+function getThemeColors() {
+    const style = getComputedStyle(document.body);
+    return {
+        stroke: style.getPropertyValue("--obj-stroke").trim() || "#ffffff",
+        fill: style.getPropertyValue("--obj-fill").trim() || "#4a90d9",
+        text: style.getPropertyValue("--obj-text").trim() || "#ffffff",
+    };
+}
+
 export function parseLines(lines) {
   const objects = [];
   const groups = [];
@@ -136,6 +149,7 @@ export function createFabricObject(obj) {
     }
     case "arrow": {
       const d = obj.data;
+      const theme = getThemeColors();
       const angle = Math.atan2(d.y2 - d.y1, d.x2 - d.x1);
       const headLength = 14;
       const headAngle = Math.PI / 6;
@@ -147,7 +161,7 @@ export function createFabricObject(obj) {
       );
       const head = new fabric.Path(
         `M ${d.x2} ${d.y2} L ${hx} ${hy} L ${d.x2 - headLength * Math.cos(angle + headAngle)} ${d.y2 - headLength * Math.sin(angle + headAngle)} Z`,
-        { fill: "#ffffff", stroke: "none", selectable: true }
+        { fill: theme.stroke, stroke: "none", selectable: true }
       );
       return new fabric.Group([line, head], { selectable: true });
     }
@@ -164,9 +178,8 @@ export function createFabricObject(obj) {
 }
 
 export function renderOnCanvas(canvas, objects, groups) {
-  const grid = canvas.gridObject || null;
   canvas.clear();
-  canvas.backgroundColor = "#1a1a2e";
+  canvas.backgroundColor = getCanvasBgColor();
 
   const created = [];
   const isGrouped = new Set();
@@ -195,12 +208,6 @@ export function renderOnCanvas(canvas, objects, groups) {
       const group = new fabric.Group(members, {});
       canvas.add(group);
     }
-  }
-
-  if (grid) {
-    canvas.add(grid);
-    canvas.sendToBack(grid);
-    canvas.gridObject = grid;
   }
 
   canvas.renderAll();
@@ -275,21 +282,22 @@ function encodeArrow(group) {
 }
 
 function encodeObject(obj) {
+  const theme = getThemeColors();
   switch (obj.type) {
     case "rect":
-      return `R:${Math.round(obj.left)},${Math.round(obj.top)},${Math.round(obj.width)},${Math.round(obj.height)},${obj.fill || "#4a90d9"},${obj.stroke || "#ffffff"},${obj.strokeWidth || 2}`;
+      return `R:${Math.round(obj.left)},${Math.round(obj.top)},${Math.round(obj.width)},${Math.round(obj.height)},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
     case "ellipse":
-      return `C:${Math.round(obj.left)},${Math.round(obj.top)},${Math.round(obj.rx)},${Math.round(obj.ry)},${obj.fill || "#4a90d9"},${obj.stroke || "#ffffff"},${obj.strokeWidth || 2}`;
+      return `C:${Math.round(obj.left)},${Math.round(obj.top)},${Math.round(obj.rx)},${Math.round(obj.ry)},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
     case "line":
-      return `L:${Math.round(obj.x1)},${Math.round(obj.y1)},${Math.round(obj.x2)},${Math.round(obj.y2)},${obj.stroke || "#ffffff"},${obj.strokeWidth || 2}`;
+      return `L:${Math.round(obj.x1)},${Math.round(obj.y1)},${Math.round(obj.x2)},${Math.round(obj.y2)},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
     case "i-text":
     case "text":
-      return `T:${Math.round(obj.left)},${Math.round(obj.top)},${obj.fontSize || 20},${obj.fill || "#ffffff"},${obj.text || ""}`;
+      return `T:${Math.round(obj.left)},${Math.round(obj.top)},${obj.fontSize || 20},${obj.fill || theme.text},${obj.text || ""}`;
     case "path":
       if (obj.shapeType === "diamond") {
         const w = Math.round(obj.width || 60);
         const h = Math.round(obj.height || 60);
-        return `D:${Math.round(obj.left || 0)},${Math.round(obj.top || 0)},${w},${h},${obj.fill || "#4a90d9"},${obj.stroke || "#ffffff"},${obj.strokeWidth || 2}`;
+        return `D:${Math.round(obj.left || 0)},${Math.round(obj.top || 0)},${w},${h},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
       }
       return null;
     default:
