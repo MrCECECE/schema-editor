@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Schema Editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script>
     (function () {
       const key = 'schema_editor_theme';
@@ -11,10 +13,18 @@
       document.documentElement.dataset.theme = theme;
     })();
   </script>
-  <link rel="stylesheet" href="assets/css/theme.css">
   <link rel="stylesheet" href="assets/css/screen.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
 </head>
-<body>
+<body class="theme-dark">
+<script>
+  (function () {
+    const t = localStorage.getItem('schema_editor_theme')
+      || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.body.classList.toggle('theme-dark', t === 'dark');
+    document.body.classList.toggle('theme-light', t === 'light');
+  })();
+</script>
   <h1>Schema Editor</h1>
 
   <a href="view.html"><button class="btn btn-primary">Посмотреть</button></a>
