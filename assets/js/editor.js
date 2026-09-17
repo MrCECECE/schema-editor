@@ -65,12 +65,13 @@ export function setCurrentTool(tool) {
     if (!canvas) return;
     canvas.selection = !viewOnly && tool === "select";
     canvas.isDrawingMode = !viewOnly && tool === "pencil";
+    // В view-only режиме и в режиме руки не нужно искать цели под курсором
     canvas.skipTargetFind = viewOnly || (tool !== "select" && tool !== "eraser");
     canvas.defaultCursor =
         tool === "hand" ? "grab" :
             tool === "select" ? "default" :
                 "crosshair";
-    canvas.discardActiveObject();
+    if (!viewOnly) canvas.discardActiveObject();
     canvas.renderAll();
 }
 
@@ -79,7 +80,7 @@ export function setViewOnlyMode(on) {
     if (canvas) {
         canvas.selection = !viewOnly && currentTool === "select";
         canvas.skipTargetFind = viewOnly || (currentTool !== "select" && currentTool !== "eraser");
-        canvas.discardActiveObject();
+        if (!viewOnly) canvas.discardActiveObject();
         canvas.requestRenderAll();
     }
 }
@@ -183,9 +184,10 @@ export function markDirty() {
 }
 
 function onMouseDown(opt) {
-    if (viewOnly) return;
     const e = opt.e;
 
+    // Панорамирование (средняя кнопка мыши или инструмент "рука")
+    // должно работать и в view-only режиме.
     if (e.button === 1 || currentTool === "hand") {
         panState = {
             startX: e.clientX,
@@ -196,6 +198,9 @@ function onMouseDown(opt) {
         e.preventDefault();
         return;
     }
+
+    // Всё остальное — только для редактирования.
+    if (viewOnly) return;
 
     const pointer = canvas.getPointer(opt.e);
     const x = snap(pointer.x);
@@ -226,6 +231,7 @@ function onMouseMove(opt) {
     const e = opt.e;
 
     if (panState) {
+        // Меняем ТОЛЬКО сдвиг (vpt[4]/vpt[5]), масштаб (vpt[0]/vpt[3]) не трогаем.
         const vpt = canvas.viewportTransform.slice();
         vpt[4] = panState.startVpt[4] + (e.clientX - panState.startX);
         vpt[5] = panState.startVpt[5] + (e.clientY - panState.startY);
@@ -238,6 +244,8 @@ function onMouseMove(opt) {
     document.dispatchEvent(new CustomEvent("coords:update", {
         detail: { x: Math.round(pointer.x), y: Math.round(pointer.y) },
     }));
+
+    if (viewOnly) return;
 
     if (isDrawingLine) {
         const x = snap(pointer.x);
@@ -286,6 +294,8 @@ function onMouseUp(opt) {
         return;
     }
 
+    if (viewOnly) return;
+
     if (isDrawingLine && isDrawingLine.shape) {
         const shape = isDrawingLine.shape;
         shape.set({ excludeFromExport: false, selectable: true, evented: true });
@@ -332,6 +342,9 @@ function onMouseWheel(opt) {
     if (zoom > 10) zoom = 10;
     if (zoom < 0.1) zoom = 0.1;
 
+    // offsetX/offsetY — экранные координаты относительно upper-canvas.
+    // getPointer(e) тут использовать нельзя: он вернёт мировые координаты,
+    // и zoomToPoint применит inverse viewportTransform второй раз.
     canvas.zoomToPoint(new fabric.Point(e.offsetX, e.offsetY), zoom);
     canvas.requestRenderAll();
 
