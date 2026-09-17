@@ -1,3 +1,6 @@
-:root { --bg: #ffffff; --text: #111111; --accent: #2563eb; }
-[data-theme="dark"] { --bg: #111111; --text: #eeeeee; --accent: #60a5fa; }
-body { background: var(--bg); color: var(--text); }
+/* theme.css — совместимость и fallback.
+   Основные CSS-переменные живут в screen.css (.theme-dark / .theme-light). */
+body {
+    background: var(--bg);
+    color: var(--text);
+}

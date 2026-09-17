@@ -4,10 +4,9 @@ let canvas = null;
 let currentTool = "select";
 let gridEnabled = true;
 
-let isDrawingLine = null; // {startX, startY, shape}
-let drawStart = null;
-
-let panState = null;          // { startX, startY, startVpt }
+let isDrawingLine = null;   // { startX, startY, tool, shape? }
+let drawStart = null;       // { x, y, shape? }
+let panState = null;        // { startX, startY, startVpt }
 let prevToolBeforeSpace = null;
 let viewOnly = false;
 
@@ -59,19 +58,18 @@ export function initEditor() {
     return canvas;
 }
 
-export function getCanvas() {
-    return canvas;
-}
+export function getCanvas() { return canvas; }
 
 export function setCurrentTool(tool) {
     currentTool = tool;
+    if (!canvas) return;
     canvas.selection = !viewOnly && tool === "select";
     canvas.isDrawingMode = !viewOnly && tool === "pencil";
     canvas.skipTargetFind = viewOnly || (tool !== "select" && tool !== "eraser");
     canvas.defaultCursor =
         tool === "hand" ? "grab" :
-        tool === "select" ? "default" :
-        "crosshair";
+            tool === "select" ? "default" :
+                "crosshair";
     canvas.discardActiveObject();
     canvas.renderAll();
 }
@@ -86,9 +84,7 @@ export function setViewOnlyMode(on) {
     }
 }
 
-export function getCurrentTool() {
-    return currentTool;
-}
+export function getCurrentTool() { return currentTool; }
 
 function snap(value) {
     if (!gridEnabled) return value;
@@ -97,7 +93,7 @@ function snap(value) {
 
 function applyGrid(enable) {
     gridEnabled = enable;
-    canvas.renderAll();
+    if (canvas) canvas.requestRenderAll();
 }
 
 export function toggleGrid() {
@@ -105,9 +101,7 @@ export function toggleGrid() {
     return gridEnabled;
 }
 
-export function isGridEnabled() {
-    return gridEnabled;
-}
+export function isGridEnabled() { return gridEnabled; }
 
 function installGridBackground() {
     canvas._renderBackground = function (ctx) {
@@ -157,15 +151,17 @@ function bindCanvasEvents() {
     canvas.on("selection:updated", () => document.dispatchEvent(new CustomEvent("selection:changed")));
     canvas.on("selection:cleared", () => document.dispatchEvent(new CustomEvent("selection:changed")));
     canvas.on("object:added", markDirty);
-    canvas.on("object:modified", markDirty);
-    canvas.on("object:removed", markDirty);
+    canvas.on("object:modified", () => { markDirty(); saveUndo(); });
+    canvas.on("object:removed", () => { markDirty(); saveUndo(); });
+    canvas.on("path:created", () => { markDirty(); saveUndo(); });
 }
 
 function bindSpacePan() {
     document.addEventListener("keydown", (e) => {
         if (e.code !== "Space") return;
         const tag = document.activeElement && document.activeElement.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (!canvas) return;
         const active = canvas.getActiveObject();
         if (active && active.isEditing) return;
         e.preventDefault();
@@ -187,9 +183,9 @@ export function markDirty() {
 }
 
 function onMouseDown(opt) {
+    if (viewOnly) return;
     const e = opt.e;
 
-    // Панорамирование: средняя кнопка мыши в любом режиме, либо левая в режиме "hand".
     if (e.button === 1 || currentTool === "hand") {
         panState = {
             startX: e.clientX,
@@ -209,6 +205,7 @@ function onMouseDown(opt) {
         const target = canvas.findTarget(opt.e, true);
         if (target) {
             canvas.remove(target);
+            canvas.requestRenderAll();
         }
         return;
     }
@@ -216,11 +213,11 @@ function onMouseDown(opt) {
     if (currentTool === "line" || currentTool === "arrow") {
         if (!isDrawingLine) {
             isDrawingLine = { startX: x, startY: y, tool: currentTool };
-            return;
         }
+        return;
     }
 
-    if (["rectangle", "diamond", "circle", "line", "arrow"].includes(currentTool)) {
+    if (["rectangle", "diamond", "circle"].includes(currentTool)) {
         drawStart = { x, y };
     }
 }
@@ -229,12 +226,11 @@ function onMouseMove(opt) {
     const e = opt.e;
 
     if (panState) {
-        // Меняем ТОЛЬКО сдвиг (vpt[4]/vpt[5]), масштаб (vpt[0]/vpt[3]) не трогаем.
         const vpt = canvas.viewportTransform.slice();
         vpt[4] = panState.startVpt[4] + (e.clientX - panState.startX);
         vpt[5] = panState.startVpt[5] + (e.clientY - panState.startY);
         canvas.setViewportTransform(vpt);
-        canvas.requestRenderAll();   // без этого картинка не сдвинется
+        canvas.requestRenderAll();
         return;
     }
 
@@ -248,14 +244,17 @@ function onMouseMove(opt) {
         const y = snap(pointer.y);
         const theme = getThemeColors();
         if (!isDrawingLine.shape) {
-            const line = new fabric.Line([isDrawingLine.startX, isDrawingLine.startY, x, y], {
-                stroke: theme.stroke,
-                strokeWidth: 2,
-                selectable: false,
-                evented: false,
-                originX: "center",
-                originY: "center",
-            });
+            const line = new fabric.Line(
+                [isDrawingLine.startX, isDrawingLine.startY, x, y],
+                {
+                    stroke: theme.stroke,
+                    strokeWidth: 2,
+                    selectable: false,
+                    evented: false,
+                    originX: "center",
+                    originY: "center",
+                }
+            );
             line.set({ excludeFromExport: true });
             isDrawingLine.shape = line;
             canvas.add(line);
@@ -283,41 +282,40 @@ function onMouseUp(opt) {
     if (panState) {
         panState = null;
         canvas.setCursor(currentTool === "hand" ? "grab" :
-                         currentTool === "select" ? "default" : "crosshair");
+            currentTool === "select" ? "default" : "crosshair");
         return;
     }
 
     if (isDrawingLine && isDrawingLine.shape) {
         const shape = isDrawingLine.shape;
-        delete shape.excludeFromExport;
-        shape.set({
-            selectable: true,
-            evented: true,
-            excludeFromExport: false,
-        });
+        shape.set({ excludeFromExport: false, selectable: true, evented: true });
         if (isDrawingLine.tool === "arrow") {
             canvas.remove(shape);
-            const line = createArrow(shape.x1, shape.y1, shape.x2, shape.y2);
-            canvas.add(line);
+            const arrow = createArrow(shape.x1, shape.y1, shape.x2, shape.y2);
+            canvas.add(arrow);
         }
         isDrawingLine = null;
         markDirty();
         saveUndo();
+        canvas.requestRenderAll();
         return;
     }
+    isDrawingLine = null;
 
     if (drawStart && drawStart.shape) {
         const shape = drawStart.shape;
         if (shape.width <= GRID_SIZE / 2 && shape.height <= GRID_SIZE / 2) {
             canvas.remove(shape);
         }
-        drawStart = null;
         markDirty();
         saveUndo();
+        canvas.requestRenderAll();
     }
+    drawStart = null;
 }
 
 function onDoubleClick(opt) {
+    if (viewOnly) return;
     const target = canvas.findTarget(opt.e);
     if (target && target.type === "i-text") {
         canvas.setActiveObject(target);
@@ -334,12 +332,8 @@ function onMouseWheel(opt) {
     if (zoom > 10) zoom = 10;
     if (zoom < 0.1) zoom = 0.1;
 
-    // offsetX/offsetY — экранные координаты относительно upper-canvas.
-    // getPointer(e) тут НЕЛЬЗЯ: он возвращает мировые координаты, и zoomToPoint
-    // применит inverse viewportTransform второй раз.
     canvas.zoomToPoint(new fabric.Point(e.offsetX, e.offsetY), zoom);
-
-    canvas.requestRenderAll();   // ← это ключевая строка, которой не было
+    canvas.requestRenderAll();
 
     e.preventDefault();
     e.stopPropagation();
@@ -368,16 +362,16 @@ function createShape(tool, x1, y1, x2, y2) {
                 fill: theme.fill, stroke: theme.stroke, strokeWidth: 2,
             });
         case "diamond": {
-            const path = new fabric.Path(`
-                M ${left + width / 2} ${top}
-                L ${left + width} ${top + height / 2}
-                L ${left + width / 2} ${top + height}
-                L ${left} ${top + height / 2} Z
-            `, {
-                fill: theme.fill, stroke: theme.stroke, strokeWidth: 2,
-                left: 0, top: 0,
-            });
-            path.set({ left, top });
+            const path = new fabric.Path(
+                `M ${width / 2} 0 L ${width} ${height / 2} L ${width / 2} ${height} L 0 ${height / 2} Z`,
+                {
+                    fill: theme.fill,
+                    stroke: theme.stroke,
+                    strokeWidth: 2,
+                    left,
+                    top,
+                }
+            );
             path.set({ shapeType: "diamond" });
             return path;
         }
@@ -403,10 +397,10 @@ function updateShape(shape, tool, x1, y1, x2, y2) {
         shape.set({ left, top, width, height });
     } else if (tool === "diamond") {
         shape.path = [
-            ["M", left + width / 2, top],
-            ["L", left + width, top + height / 2],
-            ["L", left + width / 2, top + height],
-            ["L", left, top + height / 2],
+            ["M", width / 2, 0],
+            ["L", width, height / 2],
+            ["L", width / 2, height],
+            ["L", 0, height / 2],
             ["Z"],
         ];
         shape.dirty = true;
@@ -415,7 +409,10 @@ function updateShape(shape, tool, x1, y1, x2, y2) {
         shape.setCoords();
     } else if (tool === "circle") {
         shape.set({ rx: width / 2, ry: height / 2 });
-        shape.setPositionByOrigin(new fabric.Point(left + width / 2, top + height / 2), "center", "center");
+        shape.setPositionByOrigin(
+            new fabric.Point(left + width / 2, top + height / 2),
+            "center", "center"
+        );
     }
 }
 
@@ -426,25 +423,19 @@ function createArrow(x1, y1, x2, y2) {
     const headAngle = Math.PI / 6;
     const hx = x2 - headLength * Math.cos(angle - headAngle);
     const hy = y2 - headLength * Math.sin(angle - headAngle);
-    const line = new fabric.Line([x1, y1, x2 - headLength * Math.cos(angle), y2 - headLength * Math.sin(angle)], {
-        stroke: theme.stroke,
-        strokeWidth: 2,
-        fill: "",
-        selectable: true,
-    });
-    const head = new fabric.Path(`
-        M ${x2} ${y2}
-        L ${hx} ${hy}
-        L ${x2 - headLength * Math.cos(angle + headAngle)} ${y2 - headLength * Math.sin(angle + headAngle)}
-        Z
-    `, {
-        fill: theme.stroke,
-        stroke: "none",
-        selectable: true,
-    });
-    return new fabric.Group([line, head], {
-        selectable: true,
-    });
+    const line = new fabric.Line(
+        [x1, y1,
+            x2 - headLength * Math.cos(angle),
+            y2 - headLength * Math.sin(angle)],
+        { stroke: theme.stroke, strokeWidth: 2, fill: "", selectable: true }
+    );
+    const head = new fabric.Path(
+        `M ${x2} ${y2} L ${hx} ${hy} ` +
+        `L ${x2 - headLength * Math.cos(angle + headAngle)} ` +
+        `${y2 - headLength * Math.sin(angle + headAngle)} Z`,
+        { fill: theme.stroke, stroke: "none", selectable: true }
+    );
+    return new fabric.Group([line, head], { selectable: true });
 }
 
 export function addText(text) {
@@ -457,6 +448,7 @@ export function addText(text) {
     });
     canvas.add(t);
     canvas.setActiveObject(t);
+    canvas.requestRenderAll();
     markDirty();
     saveUndo();
     return t;
@@ -469,6 +461,7 @@ export function groupSelected() {
         const group = active.toGroup();
         canvas.setActiveObject(group);
         group.setCoords();
+        canvas.requestRenderAll();
         markDirty();
         saveUndo();
     }
@@ -506,20 +499,9 @@ export function setZoom(factor) {
     updateZoomUI();
 }
 
-export function zoomIn() {
-    if (!canvas) return;
-    setZoom(canvas.getZoom() + 0.1);
-}
-
-export function zoomOut() {
-    if (!canvas) return;
-    setZoom(canvas.getZoom() - 0.1);
-}
-
-export function resetZoom() {
-    if (!canvas) return;
-    setZoom(1);
-}
+export function zoomIn() { if (canvas) setZoom(canvas.getZoom() + 0.1); }
+export function zoomOut() { if (canvas) setZoom(canvas.getZoom() - 0.1); }
+export function resetZoom() { if (canvas) setZoom(1); }
 
 export function updateZoomUI() {
     if (!canvas) return;
@@ -541,16 +523,12 @@ export function loadFromJSON(data) {
     });
 }
 
-export function getJSON() {
-    return canvas.toJSON();
-}
+export function getJSON() { return canvas.toJSON(); }
 
 export function updateObjectsForTheme() {
     if (!canvas) return;
     const theme = getThemeColors();
-    const objects = canvas.getObjects();
-
-    objects.forEach((obj) => {
+    canvas.getObjects().forEach((obj) => {
         if (obj.excludeFromExport) return;
         if (obj.type === "group" || obj.type === "activeSelection") {
             obj.getObjects?.().forEach((child) => updateObjectColors(child, theme));
@@ -558,13 +536,10 @@ export function updateObjectsForTheme() {
             updateObjectColors(obj, theme);
         }
     });
-
-    // Update pencil brush color
     if (canvas.freeDrawingBrush) {
         canvas.freeDrawingBrush.color = theme.pencil;
     }
-
-    canvas.renderAll();
+    canvas.requestRenderAll();
 }
 
 function updateObjectColors(obj, theme) {
@@ -583,12 +558,8 @@ function updateObjectColors(obj, theme) {
     const isDefaultText = normFill === darkText || normFill === lightText;
     const isStrokeColoredFill = normFill === darkStroke || normFill === lightStroke;
 
-    if (obj.stroke && isDefaultStroke) {
-        obj.set({ stroke: theme.stroke });
-    }
-    if (obj.fill && isDefaultFill) {
-        obj.set({ fill: theme.fill });
-    }
+    if (obj.stroke && isDefaultStroke) obj.set({ stroke: theme.stroke });
+    if (obj.fill && isDefaultFill) obj.set({ fill: theme.fill });
     if (obj.fill && isStrokeColoredFill && (obj.type === "path" || obj.type === "triangle")) {
         obj.set({ fill: theme.stroke });
     }

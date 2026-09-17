@@ -2,9 +2,12 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Schema Editor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/screen.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
   <script>
     (function () {
       const key = 'schema_editor_theme';
@@ -13,47 +16,68 @@
       document.documentElement.dataset.theme = theme;
     })();
   </script>
-  <link rel="stylesheet" href="assets/css/screen.css">
-  <link rel="stylesheet" href="assets/css/theme.css">
 </head>
-<body class="theme-dark">
+<body>
 <script>
   (function () {
     const t = localStorage.getItem('schema_editor_theme')
-      || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     document.body.classList.toggle('theme-dark', t === 'dark');
     document.body.classList.toggle('theme-light', t === 'light');
   })();
 </script>
-  <h1>Schema Editor</h1>
 
-  <a href="view.html"><button class="btn btn-primary">Посмотреть</button></a>
-  <a href="login.html"><button class="btn btn-primary">Редактировать</button></a>
-  <button id="themeToggle" class="btn btn-ghost">🌓</button>
+<div id="login-screen" class="screen">
+  <div class="login-card">
+    <h1 class="login-title">Schema Editor</h1>
+    <p class="login-subtitle">Редактор схем на Canvas + Google Sheets</p>
 
-  <dialog id="hotkeyHelp">
-    <h2>Горячие клавиши</h2>
-    <ul>
-      <li><b>V</b> — Посмотреть</li>
-      <li><b>E</b> — Редактировать</li>
-      <li><b>D</b> — Переключить тему</li>
-      <li><b>?</b> / <b>H</b> — Эта справка</li>
-    </ul>
-    <button onclick="this.closest('dialog').close()">Закрыть</button>
-  </dialog>
+    <a href="view.html" class="btn btn-primary" style="text-decoration:none;margin-bottom:12px;">
+      👁 Посмотреть
+    </a>
+    <a href="login.html" class="btn btn-primary" style="text-decoration:none;">
+      ✏️ Редактировать
+    </a>
 
-  <script src="assets/js/theme.js"></script>
-  <script src="assets/js/hotkeys.js"></script>
-  <script>
-    document.getElementById('themeToggle').onclick = () => Theme.toggle();
+    <div class="login-divider">или</div>
 
-    Hotkeys.bind({
-      'v': () => location.href = 'view.html',
-      'e': () => location.href = 'login.html',
-      'd': () => Theme.toggle(),
-      '?': () => document.getElementById('hotkeyHelp').showModal(),
-      'h': () => document.getElementById('hotkeyHelp').showModal()
-    });
-  </script>
+    <button id="themeToggle" class="btn btn-ghost" style="width:100%;">
+      🌓 Сменить тему
+    </button>
+
+    <p class="login-note">
+      <b>V</b> — Viewer, <b>E</b> — Editor, <b>D</b> — тема, <b>?</b> — справка
+    </p>
+  </div>
+</div>
+
+<dialog id="hotkeyHelp">
+  <h2>Горячие клавиши</h2>
+  <ul>
+    <li><b>V</b> — Открыть Viewer</li>
+    <li><b>E</b> — Открыть Login (Editor)</li>
+    <li><b>D</b> — Переключить тему</li>
+    <li><b>?</b> / <b>H</b> — Эта справка</li>
+  </ul>
+  <button onclick="this.closest('dialog').close()">Закрыть</button>
+</dialog>
+
+<script src="assets/js/theme.js"></script>
+<script src="assets/js/hotkeys.js"></script>
+<script>
+  document.getElementById('themeToggle').onclick = () => {
+    Theme.toggle();
+    const icon = document.querySelector('.theme-icon');
+    if (icon) icon.textContent = document.documentElement.dataset.theme === 'dark' ? '🌙' : '☀️';
+  };
+
+  Hotkeys.bind({
+    'v': () => location.href = 'view.html',
+    'e': () => location.href = 'login.html',
+    'd': () => Theme.toggle(),
+    '?': () => document.getElementById('hotkeyHelp').showModal(),
+    'h': () => document.getElementById('hotkeyHelp').showModal()
+  });
+</script>
 </body>
 </html>

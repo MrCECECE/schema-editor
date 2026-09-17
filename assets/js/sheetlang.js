@@ -3,21 +3,37 @@ import { getCanvasBgColor } from "./editor.js";
 const fabric = window.fabric;
 
 function getThemeColors() {
-    const style = getComputedStyle(document.body);
-    return {
-        stroke: style.getPropertyValue("--obj-stroke").trim() || "#ffffff",
-        fill: style.getPropertyValue("--obj-fill").trim() || "#4a90d9",
-        text: style.getPropertyValue("--obj-text").trim() || "#ffffff",
-    };
+  const style = getComputedStyle(document.body);
+  return {
+    stroke: style.getPropertyValue("--obj-stroke").trim() || "#ffffff",
+    fill: style.getPropertyValue("--obj-fill").trim() || "#4a90d9",
+    text: style.getPropertyValue("--obj-text").trim() || "#ffffff",
+  };
 }
 
-export function parseLines(lines) {
-  const objects = [];
-  const groups = [];
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const line = String(raw).trim();
+function escapeText(t) {
+  return String(t).replace(/[\r\n]+/g, " ");
+}
+
+/**
+ * Парсит массив строк листа.
+ * Индексы в G: считаются по номеру строки листа (1-based),
+ * включая комментарии и пустые строки.
+ * @param {string[]} rows — массив строк листа (row[0] каждой строки)
+ */
+export function parseLines(rows) {
+  const objects = [];
+  const rawGroups = [];
+  const sheetRowToObjIdx = new Map();
+
+  for (let i = 0; i < rows.length; i++) {
+    const sheetRow = i + 1;
+    const line = String(rows[i] ?? "").trim();
     if (!line || line.startsWith("#")) continue;
 
     const colonIdx = line.indexOf(":");
@@ -27,141 +43,150 @@ export function parseLines(lines) {
     const params = line.substring(colonIdx + 1);
 
     if (type === "G") {
-      const indices = params
-        .split(",")
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => !isNaN(n) && n > 0);
-      if (indices.length > 0) groups.push(indices);
+      const idxs = params
+          .split(",")
+          .map((s) => parseInt(s.trim(), 10))
+          .filter((n) => Number.isInteger(n) && n > 0);
+      if (idxs.length) rawGroups.push(idxs);
       continue;
     }
 
     const p = params.split(",");
     try {
-      switch (type) {
-        case "R": {
-          if (p.length < 7) continue;
-          objects.push({
-            kind: "rect",
-            data: {
-              left: +p[0], top: +p[1], width: +p[2], height: +p[3],
-              fill: p[4], stroke: p[5], strokeWidth: +p[6],
-            },
-          });
-          break;
-        }
-        case "D": {
-          if (p.length < 7) continue;
-          const left = +p[0];
-          const top = +p[1];
-          const w = +p[2];
-          const h = +p[3];
-          const path = new fabric.Path(
-            `M ${left + w / 2} ${top} L ${left + w} ${top + h / 2} L ${left + w / 2} ${top + h} L ${left} ${top + h / 2} Z`,
-            { fill: p[4], stroke: p[5], strokeWidth: +p[6], left, top }
-          );
-          objects.push({ kind: "diamond", data: path });
-          break;
-        }
-        case "C": {
-          if (p.length < 7) continue;
-          objects.push({
-            kind: "circle",
-            data: {
-              left: +p[0], top: +p[1],
-              rx: +p[2], ry: +p[3],
-              fill: p[4], stroke: p[5], strokeWidth: +p[6],
-              originX: "center", originY: "center",
-            },
-          });
-          break;
-        }
-        case "L": {
-          if (p.length < 6) continue;
-          objects.push({
-            kind: "line",
-            data: {
-              x1: +p[0], y1: +p[1], x2: +p[2], y2: +p[3],
-              stroke: p[4], strokeWidth: +p[5],
-            },
-          });
-          break;
-        }
-        case "A": {
-          if (p.length < 6) continue;
-          objects.push({
-            kind: "arrow",
-            data: {
-              x1: +p[0], y1: +p[1], x2: +p[2], y2: +p[3],
-              stroke: p[4], strokeWidth: +p[5],
-            },
-          });
-          break;
-        }
-        case "T": {
-          if (p.length < 5) continue;
-          objects.push({
-            kind: "text",
-            data: {
-              left: +p[0], top: +p[1], fontSize: +p[2], color: p[3],
-              text: p.slice(4).join(","),
-            },
-          });
-          break;
-        }
-        default:
-          continue;
+      const obj = buildObject(type, p);
+      if (obj) {
+        objects.push(obj);
+        sheetRowToObjIdx.set(sheetRow, objects.length - 1);
       }
     } catch {
-      continue;
+      // пропускаем битую строку
     }
   }
 
+  const groups = rawGroups
+      .map((g) => g.map((r) => sheetRowToObjIdx.get(r)).filter((i) => i !== undefined))
+      .filter((g) => g.length > 0);
+
   return { objects, groups };
+}
+
+function buildObject(type, p) {
+  switch (type) {
+    case "R": {
+      if (p.length < 7) return null;
+      const [left, top, width, height] = p.slice(0, 4).map(num);
+      if ([left, top, width, height].some((v) => v === null)) return null;
+      return {
+        kind: "rect",
+        data: {
+          left, top, width, height,
+          fill: p[4], stroke: p[5],
+          strokeWidth: num(p[6]) ?? 2,
+        },
+      };
+    }
+    case "D": {
+      if (p.length < 7) return null;
+      const [left, top, w, h] = p.slice(0, 4).map(num);
+      if ([left, top, w, h].some((v) => v === null)) return null;
+      const path = new fabric.Path(
+          `M ${w / 2} 0 L ${w} ${h / 2} L ${w / 2} ${h} L 0 ${h / 2} Z`,
+          {
+            fill: p[4], stroke: p[5],
+            strokeWidth: num(p[6]) ?? 2,
+            left, top,
+            shapeType: "diamond",
+          }
+      );
+      return { kind: "diamond", data: path };
+    }
+    case "C": {
+      if (p.length < 7) return null;
+      const [left, top, rx, ry] = p.slice(0, 4).map(num);
+      if ([left, top, rx, ry].some((v) => v === null)) return null;
+      return {
+        kind: "circle",
+        data: {
+          left, top, rx, ry,
+          fill: p[4], stroke: p[5],
+          strokeWidth: num(p[6]) ?? 2,
+          originX: "center", originY: "center",
+        },
+      };
+    }
+    case "L": {
+      if (p.length < 6) return null;
+      const [x1, y1, x2, y2] = p.slice(0, 4).map(num);
+      if ([x1, y1, x2, y2].some((v) => v === null)) return null;
+      return {
+        kind: "line",
+        data: { x1, y1, x2, y2, stroke: p[4], strokeWidth: num(p[5]) ?? 2 },
+      };
+    }
+    case "A": {
+      if (p.length < 6) return null;
+      const [x1, y1, x2, y2] = p.slice(0, 4).map(num);
+      if ([x1, y1, x2, y2].some((v) => v === null)) return null;
+      return {
+        kind: "arrow",
+        data: { x1, y1, x2, y2, stroke: p[4], strokeWidth: num(p[5]) ?? 2 },
+      };
+    }
+    case "T": {
+      if (p.length < 5) return null;
+      const [left, top, fontSize] = p.slice(0, 3).map(num);
+      if ([left, top, fontSize].some((v) => v === null)) return null;
+      return {
+        kind: "text",
+        data: {
+          left, top, fontSize,
+          color: p[3],
+          text: p.slice(4).join(","),
+        },
+      };
+    }
+    default:
+      return null;
+  }
 }
 
 export function createFabricObject(obj) {
   switch (obj.kind) {
     case "rect": {
       const d = obj.data;
-      return new fabric.Rect({
-        left: d.left, top: d.top, width: d.width, height: d.height,
-        fill: d.fill, stroke: d.stroke, strokeWidth: d.strokeWidth,
-        selectable: true,
-      });
+      return new fabric.Rect({ ...d, selectable: true });
     }
     case "diamond":
       return obj.data;
     case "circle": {
       const d = obj.data;
-      return new fabric.Ellipse({
-        left: d.left, top: d.top, rx: d.rx, ry: d.ry,
-        fill: d.fill, stroke: d.stroke, strokeWidth: d.strokeWidth,
-        originX: d.originX, originY: d.originY,
-        selectable: true,
-      });
+      return new fabric.Ellipse({ ...d, selectable: true });
     }
     case "line": {
       const d = obj.data;
       return new fabric.Line(
-        [d.x1, d.y1, d.x2, d.y2],
-        { stroke: d.stroke, strokeWidth: d.strokeWidth, selectable: true }
+          [d.x1, d.y1, d.x2, d.y2],
+          { stroke: d.stroke, strokeWidth: d.strokeWidth, selectable: true }
       );
     }
     case "arrow": {
       const d = obj.data;
-      const theme = getThemeColors();
       const angle = Math.atan2(d.y2 - d.y1, d.x2 - d.x1);
       const headLength = 14;
       const headAngle = Math.PI / 6;
       const hx = d.x2 - headLength * Math.cos(angle - headAngle);
       const hy = d.y2 - headLength * Math.sin(angle - headAngle);
       const line = new fabric.Line(
-        [d.x1, d.y1, d.x2 - headLength * Math.cos(angle), d.y2 - headLength * Math.sin(angle)],
-        { stroke: d.stroke, strokeWidth: d.strokeWidth, fill: "", selectable: true }
+          [d.x1, d.y1,
+            d.x2 - headLength * Math.cos(angle),
+            d.y2 - headLength * Math.sin(angle)],
+          { stroke: d.stroke, strokeWidth: d.strokeWidth, fill: "", selectable: true }
       );
       const head = new fabric.Path(
-        `M ${d.x2} ${d.y2} L ${hx} ${hy} L ${d.x2 - headLength * Math.cos(angle + headAngle)} ${d.y2 - headLength * Math.sin(angle + headAngle)} Z`,
-        { fill: theme.stroke, stroke: "none", selectable: true }
+          `M ${d.x2} ${d.y2} L ${hx} ${hy} ` +
+          `L ${d.x2 - headLength * Math.cos(angle + headAngle)} ` +
+          `${d.y2 - headLength * Math.sin(angle + headAngle)} Z`,
+          { fill: d.stroke, stroke: "none", selectable: true }
       );
       return new fabric.Group([line, head], { selectable: true });
     }
@@ -177,33 +202,25 @@ export function createFabricObject(obj) {
   }
 }
 
+/**
+ * @param {fabric.Canvas} canvas
+ * @param {object[]} objects
+ * @param {number[][]} groups — массивы 0-based индексов в objects
+ */
 export function renderOnCanvas(canvas, objects, groups) {
   canvas.clear();
-  canvas.backgroundColor = getCanvasBgColor();
 
-  const created = [];
+  const created = objects.map(createFabricObject);
   const isGrouped = new Set();
-
-  for (const group of groups) {
-    for (const idx of group) {
-      isGrouped.add(idx - 1);
-    }
-  }
-
-  for (let i = 0; i < objects.length; i++) {
-    created.push(createFabricObject(objects[i]));
-  }
+  for (const g of groups) for (const i of g) isGrouped.add(i);
 
   for (let i = 0; i < created.length; i++) {
-    if (!isGrouped.has(i)) {
-      canvas.add(created[i]);
-    }
+    if (!created[i]) continue;
+    if (!isGrouped.has(i)) canvas.add(created[i]);
   }
 
   for (const groupIndices of groups) {
-    const members = groupIndices
-      .map((idx) => created[idx - 1])
-      .filter(Boolean);
+    const members = groupIndices.map((i) => created[i]).filter(Boolean);
     if (members.length >= 1) {
       const group = new fabric.Group(members, {});
       canvas.add(group);
@@ -217,7 +234,7 @@ export function encodeCanvas(canvas) {
   const lines = [];
   const objectToLine = new Map();
   const objects = (canvas && canvas.getObjects ? canvas.getObjects() : (canvas.objects || []))
-    .filter((obj) => obj && !obj.excludeFromExport && obj.type !== "image");
+      .filter((obj) => obj && !obj.excludeFromExport && obj.type !== "image");
 
   for (const obj of objects) {
     if (obj.type === "group") continue;
@@ -232,9 +249,7 @@ export function encodeCanvas(canvas) {
     if (obj.type !== "group") continue;
     if (isArrowGroup(obj)) {
       const line = encodeArrow(obj);
-      if (line) {
-        lines.push(line);
-      }
+      if (line) lines.push(line);
       continue;
     }
     const members = getGroupMembers(obj);
@@ -255,19 +270,19 @@ function getGroupMembers(group) {
 function isArrowGroup(group) {
   const members = getGroupMembers(group);
   if (!members || members.length !== 2) return false;
-  const types = members.map(o => o.type).sort();
+  const types = members.map((o) => o.type).sort();
   return types[0] === "line" && types[1] === "path";
 }
 
 function encodeArrow(group) {
   const members = getGroupMembers(group);
-  const lineObj = members.find(o => o.type === "line");
+  const lineObj = members.find((o) => o.type === "line");
   if (!lineObj) return null;
   const cx = group.left + group.width / 2;
   const cy = group.top + group.height / 2;
   const rad = (fabric.util && fabric.util.degreesToRadians)
-    ? fabric.util.degreesToRadians(group.angle || 0)
-    : ((group.angle || 0) * Math.PI) / 180;
+      ? fabric.util.degreesToRadians(group.angle || 0)
+      : ((group.angle || 0) * Math.PI) / 180;
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
   const sx = group.scaleX || 1;
@@ -292,7 +307,7 @@ function encodeObject(obj) {
       return `L:${Math.round(obj.x1)},${Math.round(obj.y1)},${Math.round(obj.x2)},${Math.round(obj.y2)},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
     case "i-text":
     case "text":
-      return `T:${Math.round(obj.left)},${Math.round(obj.top)},${obj.fontSize || 20},${obj.fill || theme.text},${obj.text || ""}`;
+      return `T:${Math.round(obj.left)},${Math.round(obj.top)},${obj.fontSize || 20},${obj.fill || theme.text},${escapeText(obj.text || "")}`;
     case "path":
       if (obj.shapeType === "diamond") {
         const w = Math.round(obj.width || 60);

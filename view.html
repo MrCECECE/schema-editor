@@ -1,33 +1,33 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Schema Studio — Viewer</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="assets/css/screen.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js" defer></script>
-
-  <script>
-    (function () {
-      const key = 'schema_editor_theme';
-      const saved = localStorage.getItem(key);
-      const theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      document.documentElement.dataset.theme = theme;
-    })();
-  </script>
-  <link rel="stylesheet" href="assets/css/theme.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schema Studio — Viewer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/screen.css">
+    <link rel="stylesheet" href="assets/css/theme.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js" defer></script>
+    <script>
+        (function () {
+            const key = 'schema_editor_theme';
+            const saved = localStorage.getItem(key);
+            const theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.dataset.theme = theme;
+        })();
+    </script>
 </head>
-<body class="theme-dark">
+<body>
 <script>
-  (function () {
-    const t = localStorage.getItem('schema_editor_theme')
-      || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    document.body.classList.toggle('theme-dark', t === 'dark');
-    document.body.classList.toggle('theme-light', t === 'light');
-  })();
+    (function () {
+        const t = localStorage.getItem('schema_editor_theme')
+            || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.body.classList.toggle('theme-dark', t === 'dark');
+        document.body.classList.toggle('theme-light', t === 'light');
+    })();
 </script>
+
 <div class="screen">
     <header class="topbar">
         <div class="topbar-left">
@@ -35,7 +35,7 @@
             <span id="save-status" class="save-status">—</span>
         </div>
         <div class="topbar-right">
-            <button id="btn-theme-toggle" class="btn-icon" title="Сменить тема">
+            <button id="btn-theme-toggle" class="btn-icon" title="Сменить тему">
                 <span class="theme-icon">🌙</span>
             </button>
             <button id="btn-export-png" class="btn btn-ghost" title="Экспорт в PNG">PNG</button>
@@ -48,12 +48,8 @@
             <canvas id="schema-canvas"></canvas>
         </div>
         <div class="floating-controls">
-            <button id="btn-zoom-in" class="btn-icon" title="Приблизить">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M16 16 L21 21 M11 8 V14 M8 11 H14"/></svg>
-            </button>
-            <button id="btn-zoom-out" class="btn-icon" title="Отдалить">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="M16 16 L21 21 M8 11 H14"/></svg>
-            </button>
+            <button id="btn-zoom-in" class="btn-icon" title="Приблизить"></button>
+            <button id="btn-zoom-out" class="btn-icon" title="Отдалить"></button>
             <button id="btn-zoom-reset" class="btn-icon" title="100%">100%</button>
         </div>
     </main>
@@ -66,27 +62,19 @@
     </footer>
 </div>
 
-  <dialog id="hotkeyHelp">
+<dialog id="hotkeyHelp">
     <h2>Горячие клавиши просмотра</h2>
     <ul>
-      <li>Колесо мыши — Zoom (вокруг курсора)</li>
-      <li>Средняя кнопка / Space+ЛКМ — Панорамирование</li>
-      <li><b>D</b> — Переключить тему</li>
-      <li><b>?</b> / <b>H</b> — Эта справка</li>
+        <li>Колесо мыши — Zoom (вокруг курсора)</li>
+        <li>Средняя кнопка / Space — Панорамирование</li>
+        <li><b>D</b> — Переключить тему</li>
+        <li><b>?</b> / <b>H</b> — Эта справка</li>
     </ul>
     <button onclick="this.closest('dialog').close()">Закрыть</button>
-  </dialog>
+</dialog>
 
 <script type="module" src="assets/js/app.js"></script>
 <script src="assets/js/theme.js"></script>
 <script src="assets/js/hotkeys.js"></script>
-<script>
-  Hotkeys.bind({
-    '?': () => document.getElementById('hotkeyHelp').showModal(),
-    'h': () => document.getElementById('hotkeyHelp').showModal(),
-    'd': () => Theme.toggle()
-    // + существующие хоткеи просмотра (зум и т.д.)
-  });
-</script>
 </body>
 </html>

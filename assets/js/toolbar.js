@@ -1,6 +1,9 @@
 import { getCanvas } from "./editor.js";
 
 let activeObject = null;
+let el = {};
+let syncLock = false;
+let initialized = false;
 
 function getThemeColors() {
     const style = getComputedStyle(document.body);
@@ -10,23 +13,24 @@ function getThemeColors() {
     };
 }
 
-const propsNoSel = document.getElementById("props-no-selection");
-const propsSel = document.getElementById("props-selection");
-const el = {
-    fill: document.getElementById("prop-fill"),
-    stroke: document.getElementById("prop-stroke"),
-    strokeWidth: document.getElementById("prop-stroke-width"),
-    fontSize: document.getElementById("prop-font-size"),
-    opacity: document.getElementById("prop-opacity"),
-    angle: document.getElementById("prop-angle"),
-    locked: document.getElementById("prop-locked"),
-};
-
-let syncLock = false;
-
 export function initToolbarUI() {
+    if (initialized) return;
+    el = {
+        noSel: document.getElementById("props-no-selection"),
+        sel: document.getElementById("props-selection"),
+        fill: document.getElementById("prop-fill"),
+        stroke: document.getElementById("prop-stroke"),
+        strokeWidth: document.getElementById("prop-stroke-width"),
+        fontSize: document.getElementById("prop-font-size"),
+        opacity: document.getElementById("prop-opacity"),
+        angle: document.getElementById("prop-angle"),
+        locked: document.getElementById("prop-locked"),
+    };
     bindPropertyInputs();
     document.addEventListener("selection:changed", onSelectionChanged);
+    document.addEventListener("canvas:refresh-selection", onSelectionChanged);
+    initialized = true;
+    onSelectionChanged();
 }
 
 function onSelectionChanged() {
@@ -34,22 +38,23 @@ function onSelectionChanged() {
     if (!canvas) return;
     const obj = canvas.getActiveObject();
     activeObject = obj;
+    if (!el.noSel || !el.sel) return;
     if (!obj) {
-        propsNoSel.classList.remove("hidden");
-        propsSel.classList.add("hidden");
+        el.noSel.classList.remove("hidden");
+        el.sel.classList.add("hidden");
         return;
     }
-    propsNoSel.classList.add("hidden");
-    propsSel.classList.remove("hidden");
+    el.noSel.classList.add("hidden");
+    el.sel.classList.remove("hidden");
     syncProperties(obj);
 }
 
 function syncProperties(obj) {
     syncLock = true;
     const theme = getThemeColors();
-    const iterObj = obj.type === "activeSelection" ? obj.getObjects()[0] || obj : obj;
-    if (el.fill) el.fill.value = iterObj.fill && iterObj.fill !== "" ? iterObj.fill : theme.fill;
-    if (el.stroke) el.stroke.value = iterObj.stroke && iterObj.stroke !== "" ? iterObj.stroke : theme.stroke;
+    const iterObj = obj.type === "activeSelection" ? (obj.getObjects()[0] || obj) : obj;
+    if (el.fill) el.fill.value = (iterObj.fill && iterObj.fill !== "") ? iterObj.fill : theme.fill;
+    if (el.stroke) el.stroke.value = (iterObj.stroke && iterObj.stroke !== "") ? iterObj.stroke : theme.stroke;
     if (el.strokeWidth) el.strokeWidth.value = iterObj.strokeWidth != null ? iterObj.strokeWidth : 0;
     if (el.fontSize) el.fontSize.value = iterObj.fontSize != null ? iterObj.fontSize : 20;
     if (el.opacity) el.opacity.value = obj.opacity != null ? obj.opacity : 1;
@@ -59,45 +64,28 @@ function syncProperties(obj) {
 }
 
 function bindPropertyInputs() {
-    if (el.fill) el.fill.addEventListener("input", () => {
-        if (syncLock || !activeObject) return;
-        applyToObjects("fill", el.fill.value);
-    });
-    if (el.stroke) el.stroke.addEventListener("input", () => {
-        if (syncLock || !activeObject) return;
-        applyToObjects("stroke", el.stroke.value);
-    });
-    if (el.strokeWidth) el.strokeWidth.addEventListener("input", () => {
-        if (syncLock || !activeObject) return;
-        applyToObjects("strokeWidth", parseFloat(el.strokeWidth.value));
-    });
-    if (el.fontSize) el.fontSize.addEventListener("input", () => {
-        if (syncLock || !activeObject) return;
-        applyToObjects("fontSize", parseFloat(el.fontSize.value));
-    });
-    if (el.opacity) el.opacity.addEventListener("input", () => {
-        if (syncLock || !activeObject) return;
-        applyToObjects("opacity", parseFloat(el.opacity.value));
-    });
-    if (el.angle) el.angle.addEventListener("input", () => {
-        if (syncLock || !activeObject) return;
-        applyToObjects("angle", parseFloat(el.angle.value));
-    });
-    if (el.locked) el.locked.addEventListener("change", () => {
-        if (syncLock || !activeObject) return;
-        applyToObjects("locked", el.locked.checked);
-    });
-
-    ["fill", "stroke", "strokeWidth", "fontSize", "opacity", "angle", "locked"].forEach((name) => {
-        const input = el[name];
+    const onInput = (prop, getter) => {
+        const input = el[prop];
         if (!input) return;
+        input.addEventListener("input", () => {
+            if (syncLock || !activeObject) return;
+            applyToObjects(prop, getter());
+        });
         input.addEventListener("change", () => {
             const canvas = getCanvas();
+            if (!canvas) return;
             canvas.requestRenderAll();
             document.dispatchEvent(new CustomEvent("canvas:dirty"));
             document.dispatchEvent(new CustomEvent("history:request"));
         });
-    });
+    };
+    onInput("fill", () => el.fill.value);
+    onInput("stroke", () => el.stroke.value);
+    onInput("strokeWidth", () => parseFloat(el.strokeWidth.value));
+    onInput("fontSize", () => parseFloat(el.fontSize.value));
+    onInput("opacity", () => parseFloat(el.opacity.value));
+    onInput("angle", () => parseFloat(el.angle.value));
+    onInput("locked", () => el.locked.checked);
 }
 
 function applyToObjects(prop, value) {
@@ -115,7 +103,15 @@ function applyToObjects(prop, value) {
             case "opacity": o.set({ opacity: value }); break;
             case "angle": o.set({ angle: value }); break;
             case "locked":
-                o.set({ lockMovementX: value, lockMovementY: value, hasControls: !value, hasBorders: !value, lockRotation: value, lockScalingX: value, lockScalingY: value });
+                o.set({
+                    lockMovementX: value,
+                    lockMovementY: value,
+                    hasControls: !value,
+                    hasBorders: !value,
+                    lockRotation: value,
+                    lockScalingX: value,
+                    lockScalingY: value,
+                });
                 break;
         }
     });

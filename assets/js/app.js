@@ -1,4 +1,7 @@
-import { initEditor, getCanvas, toggleGrid, updateObjectsForTheme, getCanvasBgColor, updateZoomUI, setViewOnlyMode } from "./editor.js";
+import {
+    initEditor, getCanvas, toggleGrid, updateObjectsForTheme,
+    getCanvasBgColor, updateZoomUI, setViewOnlyMode,
+} from "./editor.js";
 import { parseLines, renderOnCanvas } from "./sheetlang.js";
 import { ICONS } from "./icons.js";
 
@@ -14,16 +17,56 @@ const AppState = {
     refreshTimer: null,
 };
 
+function installFabricFixes() {
+    // Fabric.js 5.3.0: "alphabetical" — не валидный CanvasTextBaseline
+    if (fabric.Text && fabric.Text.prototype._setTextStyles) {
+        fabric.Text.prototype._setTextStyles = function (ctx, charStyle, forMeasuring) {
+            ctx.textBaseline = "alphabetic";
+            if (this.path) {
+                switch (this.pathAlign) {
+                    case "center": ctx.textBaseline = "middle"; break;
+                    case "ascender": ctx.textBaseline = "top"; break;
+                    case "descender": ctx.textBaseline = "bottom"; break;
+                }
+            }
+            ctx.font = this._getFontDeclaration(charStyle, forMeasuring);
+        };
+    }
+}
+
 function paintIcons() {
     document.querySelectorAll(".tool-btn[data-tool]").forEach((btn) => {
         const tool = btn.dataset.tool;
         if (ICONS[tool]) btn.innerHTML = ICONS[tool];
     });
-    document.querySelectorAll("#btn-zoom-in, #btn-zoom-out, #btn-zoom-reset, #btn-grid").forEach((btn) => {
-        const key = btn.id.replace("btn-", "");
-        const iconKey = { "zoom-in": "zoomIn", "zoom-out": "zoomOut", "zoom-reset": "zoomReset", grid: "grid" }[key];
-        if (ICONS[iconKey]) btn.innerHTML = ICONS[iconKey];
-    });
+    document.querySelectorAll("#btn-zoom-in, #btn-zoom-out, #btn-zoom-reset, #btn-grid")
+        .forEach((btn) => {
+            const key = btn.id.replace("btn-", "");
+            const iconKey = {
+                "zoom-in": "zoomIn",
+                "zoom-out": "zoomOut",
+                "zoom-reset": "zoomReset",
+                grid: "grid",
+            }[key];
+            if (ICONS[iconKey]) btn.innerHTML = ICONS[iconKey];
+        });
+}
+
+function updateThemeIcon() {
+    const icon = document.querySelector(".theme-icon");
+    if (icon) {
+        icon.textContent = document.documentElement.dataset.theme === "dark" ? "🌙" : "☀️";
+    }
+}
+
+function onThemeToggle() {
+    Theme.toggle();
+    updateThemeIcon();
+    if (AppState.canvas) {
+        updateObjectsForTheme();
+        AppState.canvas.setBackgroundColor(getCanvasBgColor());
+        AppState.canvas.requestRenderAll();
+    }
 }
 
 function init() {
@@ -32,41 +75,20 @@ function init() {
             showFatalError("Fabric.js не загрузился. Проверьте подключение к интернету.");
             return;
         }
-        // Исправление fabric.js 5.3.0: "alphabetical" не валидный CanvasTextBaseline
-        if (fabric.Text && fabric.Text.prototype._setTextStyles) {
-            fabric.Text.prototype._setTextStyles = function(ctx, charStyle, forMeasuring) {
-                ctx.textBaseline = "alphabetic";
-                if (this.path) {
-                    switch (this.pathAlign) {
-                        case "center": ctx.textBaseline = "middle"; break;
-                        case "ascender": ctx.textBaseline = "top"; break;
-                        case "descender": ctx.textBaseline = "bottom"; break;
-                    }
-                }
-                ctx.font = this._getFontDeclaration(charStyle, forMeasuring);
-            };
-        }
+        installFabricFixes();
         Theme.apply(Theme.current());
         updateThemeIcon();
         paintIcons();
+
         AppState.canvas = initEditor();
         setViewOnly();
         bindToolbar();
         bindStatus();
+        bindHotkeys();
         setTimeout(fitCanvas, 50);
 
         const themeBtn = document.getElementById("btn-theme-toggle");
-        if (themeBtn) {
-            themeBtn.addEventListener("click", () => {
-                Theme.toggle();
-                updateThemeIcon();
-                if (AppState.canvas) {
-                    updateObjectsForTheme();
-                    AppState.canvas.setBackgroundColor(getCanvasBgColor());
-                    AppState.canvas.renderAll();
-                }
-            });
-        }
+        if (themeBtn) themeBtn.addEventListener("click", onThemeToggle);
 
         refresh();
         AppState.refreshTimer = setInterval(refresh, CONFIG.refreshInterval);
@@ -76,11 +98,22 @@ function init() {
     }
 }
 
+function bindHotkeys() {
+    Hotkeys.bind({
+        'd': onThemeToggle,
+        '?': () => { const d = document.getElementById('hotkeyHelp'); if (d) d.showModal(); },
+        'h': () => { const d = document.getElementById('hotkeyHelp'); if (d) d.showModal(); },
+    });
+}
+
 function showFatalError(msg) {
     const container = document.getElementById("canvas-container");
-    if (container) {
-        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#f87171;font-size:14px;text-align:center;padding:40px;">' + msg + "</div>";
-    }
+    if (!container) return;
+    container.textContent = "";
+    const div = document.createElement("div");
+    div.style.cssText = "display:flex;align-items:center;justify-content:center;height:100%;color:#f87171;font-size:14px;text-align:center;padding:40px;";
+    div.textContent = msg;
+    container.appendChild(div);
 }
 
 function fitCanvas() {
@@ -90,29 +123,25 @@ function fitCanvas() {
     const maxW = container.parentElement.clientWidth - 40;
     const maxH = container.parentElement.clientHeight - 40;
     if (maxW > 0 && maxH > 0) {
-        const zoomX = maxW / 1000;
-        const zoomY = maxH / 700;
-        const zoom = Math.min(zoomX, zoomY, 1);
+        const zoom = Math.min(maxW / 1000, maxH / 700, 1);
         AppState.canvas.setZoom(zoom);
-        AppState.canvas.renderAll();
-        document.dispatchEvent(new CustomEvent("zoom:changed", { detail: { zoom: Math.round(AppState.canvas.getZoom() * 100) } }));
+        AppState.canvas.requestRenderAll();
+        updateZoomUI();
     }
 }
 
 async function refresh() {
-    if (!CONFIG.sheetsId) {
-        setStatus("Configure sheetsId in CONFIG", "info");
-        return;
-    }
+    if (!CONFIG.sheetsId) { setStatus("Configure sheetsId in CONFIG", "info"); return; }
     setStatus("Loading...");
     try {
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.sheetsId}/values/Sheet1?key=${CONFIG.apiKey}`;
         const res = await fetch(url);
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
-        const lines = extractLines(data);
-        if (lines.length > 0) {
-            const { objects, groups } = parseLines(lines);
+        const rows = rowsFromData(data);
+        const { objects, groups } = parseLines(rows);
+
+        if (objects.length > 0) {
             renderOnCanvas(AppState.canvas, objects, groups);
             updateObjectsForTheme();
             setViewOnly();
@@ -130,11 +159,9 @@ async function refresh() {
     }
 }
 
-function extractLines(data) {
+function rowsFromData(data) {
     if (!data.values || !Array.isArray(data.values)) return [];
-    return data.values
-        .map((row) => (row && row.length > 0 ? String(row[0]) : ""))
-        .filter((line) => line.trim() && !line.trim().startsWith("#"));
+    return data.values.map((row) => (row && row.length > 0 ? String(row[0]) : ""));
 }
 
 function formatTimeAgo(date) {
@@ -148,25 +175,28 @@ function formatTimeAgo(date) {
 
 function bindToolbar() {
     const canvas = getCanvas();
-    if (!canvas) {
-        console.error("Canvas not available in bindToolbar");
-        return;
-    }
-    document.getElementById("btn-zoom-in").addEventListener("click", () => {
+    if (!canvas) { console.error("Canvas not available"); return; }
+
+    const bind = (id, fn) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener("click", fn);
+    };
+    bind("btn-zoom-in", () => {
         canvas.setZoom(canvas.getZoom() + 0.1);
-        canvas.renderAll();
+        canvas.requestRenderAll();
         updateZoomUI();
     });
-    document.getElementById("btn-zoom-out").addEventListener("click", () => {
+    bind("btn-zoom-out", () => {
         canvas.setZoom(canvas.getZoom() - 0.1);
-        canvas.renderAll();
+        canvas.requestRenderAll();
         updateZoomUI();
     });
-    document.getElementById("btn-zoom-reset").addEventListener("click", () => {
+    bind("btn-zoom-reset", () => {
         canvas.setZoom(1);
-        canvas.renderAll();
+        canvas.requestRenderAll();
         updateZoomUI();
     });
+
     const gridBtn = document.getElementById("btn-grid");
     if (gridBtn) {
         gridBtn.addEventListener("click", () => {
@@ -174,8 +204,9 @@ function bindToolbar() {
             gridBtn.classList.toggle("active", on);
         });
     }
-    document.getElementById("btn-export-png").addEventListener("click", exportPNG);
-    document.getElementById("btn-export-svg").addEventListener("click", exportSVG);
+
+    bind("btn-export-png", exportPNG);
+    bind("btn-export-svg", exportSVG);
 }
 
 function exportPNG() {
@@ -227,14 +258,9 @@ function setStatus(text, cls) {
     const el = document.getElementById("save-status");
     if (!el) return;
     el.textContent = text;
-    el.style.color = cls === "error" ? "var(--danger)" : cls === "ok" ? "var(--success)" : "var(--text-dim)";
-}
-
-function updateThemeIcon() {
-    const icon = document.querySelector(".theme-icon");
-    if (icon) {
-        icon.textContent = document.documentElement.dataset.theme === "dark" ? "🌙" : "☀️";
-    }
+    el.style.color = cls === "error" ? "var(--danger)"
+        : cls === "ok" ? "var(--success)"
+            : "var(--text-dim)";
 }
 
 window.addEventListener("resize", () => {
@@ -244,10 +270,10 @@ window.addEventListener("resize", () => {
             const maxW = container.parentElement.clientWidth - 40;
             const maxH = container.parentElement.clientHeight - 40;
             if (maxW > 0 && maxH > 0) {
-                const zoomX = maxW / 1000;
-                const zoomY = maxH / 700;
-                AppState.canvas.setZoom(Math.min(zoomX, zoomY, 1));
-                document.dispatchEvent(new CustomEvent("zoom:changed", { detail: { zoom: Math.round(AppState.canvas.getZoom() * 100) } }));
+                const zoom = Math.min(maxW / 1000, maxH / 700, 1);
+                AppState.canvas.setZoom(zoom);
+                AppState.canvas.requestRenderAll();
+                updateZoomUI();
             }
         }
     }
