@@ -41,8 +41,13 @@
 
     <div class="login-divider">или</div>
 
-    <button id="themeToggle" class="btn btn-ghost" style="width:100%;">
-      🌓 Сменить тему
+    <button id="themeToggle" class="theme-switch" type="button" aria-label="Сменить тему">
+            <span class="theme-switch-track">
+                <span class="theme-switch-thumb"></span>
+                <span class="theme-switch-icon icon-sun">☀️</span>
+                <span class="theme-switch-icon icon-moon">🌙</span>
+            </span>
+      <span class="theme-switch-label">Сменить тему</span>
     </button>
 
     <p class="login-note">
@@ -65,11 +70,7 @@
 <script src="assets/js/theme.js"></script>
 <script src="assets/js/hotkeys.js"></script>
 <script>
-  document.getElementById('themeToggle').onclick = () => {
-    Theme.toggle();
-    const icon = document.querySelector('.theme-icon');
-    if (icon) icon.textContent = document.documentElement.dataset.theme === 'dark' ? '🌙' : '☀️';
-  };
+  document.getElementById('themeToggle').onclick = () => Theme.toggle();
 
   Hotkeys.bind({
     'v': () => location.href = 'view.html',
