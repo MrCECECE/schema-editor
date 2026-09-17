@@ -45,6 +45,7 @@ export function initEditor() {
         width: 1000,
         height: 700,
         renderOnAddRemove: false,
+        allowTouchScrolling: false,
     });
 
     const theme = getThemeColors();
@@ -55,6 +56,7 @@ export function initEditor() {
     installGridBackground();
     bindCanvasEvents();
     bindSpacePan();
+    bindTouchGestures();
     return canvas;
 }
 
@@ -65,7 +67,6 @@ export function setCurrentTool(tool) {
     if (!canvas) return;
     canvas.selection = !viewOnly && tool === "select";
     canvas.isDrawingMode = !viewOnly && tool === "pencil";
-    // В view-only режиме и в режиме руки не нужно искать цели под курсором
     canvas.skipTargetFind = viewOnly || (tool !== "select" && tool !== "eraser");
     canvas.defaultCursor =
         tool === "hand" ? "grab" :
@@ -179,6 +180,125 @@ function bindSpacePan() {
     });
 }
 
+/**
+ * Мобильные жесты:
+ *  - один палец: панорамирование (в view-only режиме или с инструментом "рука")
+ *  - два пальца: панорамирование + пинч-зум (всегда)
+ * Слушатели висят на wrapper'е канваса в capture-фазе и перехватывают
+ * события до Fabric.js там, где мы обрабатываем их сами.
+ */
+function bindTouchGestures() {
+    if (!canvas) return;
+    const target = canvas.wrapperEl || canvas.upperCanvasEl;
+    if (!target) return;
+
+    let pinch = null;      // { startDist, startZoom, startVpt, midX, midY }
+    let oneFinger = null;  // { startX, startY, startVpt }
+
+    const dist = (t1, t2) => Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    const mid = (t1, t2) => ({
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2,
+    });
+
+    const swallow = (e) => {
+        e.stopPropagation();
+        if (e.cancelable) e.preventDefault();
+    };
+
+    const onStart = (e) => {
+        if (e.touches.length === 2) {
+            swallow(e);
+            oneFinger = null;
+            const [t1, t2] = e.touches;
+            const m = mid(t1, t2);
+            pinch = {
+                startDist: dist(t1, t2),
+                startZoom: canvas.getZoom(),
+                startVpt: canvas.viewportTransform.slice(),
+                midX: m.x,
+                midY: m.y,
+            };
+            return;
+        }
+        if (e.touches.length === 1 && (viewOnly || currentTool === "hand")) {
+            swallow(e);
+            const t = e.touches[0];
+            oneFinger = {
+                startX: t.clientX,
+                startY: t.clientY,
+                startVpt: canvas.viewportTransform.slice(),
+            };
+        }
+    };
+
+    const onMove = (e) => {
+        if (pinch && e.touches.length >= 2) {
+            swallow(e);
+            const [t1, t2] = e.touches;
+            const d = dist(t1, t2);
+            const m = mid(t1, t2);
+
+            // Пан по смещению середины
+            const vpt = pinch.startVpt.slice();
+            vpt[4] = pinch.startVpt[4] + (m.x - pinch.midX);
+            vpt[5] = pinch.startVpt[5] + (m.y - pinch.midY);
+            canvas.setViewportTransform(vpt);
+
+            // Зум вокруг середины
+            let newZoom = pinch.startZoom * (d / pinch.startDist);
+            newZoom = Math.max(0.1, Math.min(10, newZoom));
+            const rect = canvas.upperCanvasEl.getBoundingClientRect();
+            const px = m.x - rect.left;
+            const py = m.y - rect.top;
+            canvas.zoomToPoint(new fabric.Point(px, py), newZoom);
+
+            canvas.requestRenderAll();
+            updateZoomUI();
+            return;
+        }
+        if (oneFinger && e.touches.length === 1) {
+            swallow(e);
+            const t = e.touches[0];
+            const vpt = oneFinger.startVpt.slice();
+            vpt[4] = oneFinger.startVpt[4] + (t.clientX - oneFinger.startX);
+            vpt[5] = oneFinger.startVpt[5] + (t.clientY - oneFinger.startY);
+            canvas.setViewportTransform(vpt);
+            canvas.requestRenderAll();
+            return;
+        }
+    };
+
+    const onEnd = (e) => {
+        if (e.touches.length === 0) {
+            pinch = null;
+            oneFinger = null;
+            return;
+        }
+        if (e.touches.length === 1) {
+            // Один палец остался после пинча — переходим в панорамирование,
+            // если режим это позволяет, иначе отдаём Fabric'у.
+            const wasPinching = !!pinch;
+            pinch = null;
+            if (wasPinching && (viewOnly || currentTool === "hand")) {
+                const t = e.touches[0];
+                oneFinger = {
+                    startX: t.clientX,
+                    startY: t.clientY,
+                    startVpt: canvas.viewportTransform.slice(),
+                };
+            } else if (wasPinching) {
+                swallow(e);
+            }
+        }
+    };
+
+    target.addEventListener("touchstart", onStart, { passive: false, capture: true });
+    target.addEventListener("touchmove", onMove, { passive: false, capture: true });
+    target.addEventListener("touchend", onEnd, { passive: false, capture: true });
+    target.addEventListener("touchcancel", onEnd, { passive: false, capture: true });
+}
+
 export function markDirty() {
     document.dispatchEvent(new CustomEvent("canvas:dirty"));
 }
@@ -199,7 +319,6 @@ function onMouseDown(opt) {
         return;
     }
 
-    // Всё остальное — только для редактирования.
     if (viewOnly) return;
 
     const pointer = canvas.getPointer(opt.e);
@@ -231,7 +350,6 @@ function onMouseMove(opt) {
     const e = opt.e;
 
     if (panState) {
-        // Меняем ТОЛЬКО сдвиг (vpt[4]/vpt[5]), масштаб (vpt[0]/vpt[3]) не трогаем.
         const vpt = canvas.viewportTransform.slice();
         vpt[4] = panState.startVpt[4] + (e.clientX - panState.startX);
         vpt[5] = panState.startVpt[5] + (e.clientY - panState.startY);
@@ -342,9 +460,6 @@ function onMouseWheel(opt) {
     if (zoom > 10) zoom = 10;
     if (zoom < 0.1) zoom = 0.1;
 
-    // offsetX/offsetY — экранные координаты относительно upper-canvas.
-    // getPointer(e) тут использовать нельзя: он вернёт мировые координаты,
-    // и zoomToPoint применит inverse viewportTransform второй раз.
     canvas.zoomToPoint(new fabric.Point(e.offsetX, e.offsetY), zoom);
     canvas.requestRenderAll();
 

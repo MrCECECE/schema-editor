@@ -821,6 +821,17 @@ canvas:active { cursor: grabbing; }
 
 .theme-switch-label { white-space: nowrap; }
 
+/* ===== Touch: не даём браузеру перехватывать жесты ===== */
+.upper-canvas,
+.lower-canvas,
+.canvas-container {
+    touch-action: none;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
 /* ===== Scrollbar ===== */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
