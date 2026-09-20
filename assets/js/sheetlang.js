@@ -298,23 +298,48 @@ function encodeArrow(group) {
 
 function encodeObject(obj) {
   const theme = getThemeColors();
+
+  // Страховка на случай объектов, которые не были нормализованы через
+  // flattenScale() в editor.js (например, загружены из старого состояния).
+  const sx = obj.scaleX || 1;
+  const sy = obj.scaleY || 1;
+
   switch (obj.type) {
-    case "rect":
-      return `R:${Math.round(obj.left)},${Math.round(obj.top)},${Math.round(obj.width)},${Math.round(obj.height)},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
-    case "ellipse":
-      return `C:${Math.round(obj.left)},${Math.round(obj.top)},${Math.round(obj.rx)},${Math.round(obj.ry)},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
-    case "line":
-      return `L:${Math.round(obj.x1)},${Math.round(obj.y1)},${Math.round(obj.x2)},${Math.round(obj.y2)},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
+    case "rect": {
+      const w = Math.round((obj.width || 0) * sx);
+      const h = Math.round((obj.height || 0) * sy);
+      return `R:${Math.round(obj.left)},${Math.round(obj.top)},${w},${h},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
+    }
+
+    case "ellipse": {
+      const rx = Math.round((obj.rx || 0) * sx);
+      const ry = Math.round((obj.ry || 0) * sy);
+      return `C:${Math.round(obj.left)},${Math.round(obj.top)},${rx},${ry},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
+    }
+
+    case "line": {
+      const x1 = Math.round(obj.x1 * sx);
+      const y1 = Math.round(obj.y1 * sy);
+      const x2 = Math.round(obj.x2 * sx);
+      const y2 = Math.round(obj.y2 * sy);
+      return `L:${x1},${y1},${x2},${y2},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
+    }
+
     case "i-text":
-    case "text":
-      return `T:${Math.round(obj.left)},${Math.round(obj.top)},${obj.fontSize || 20},${obj.fill || theme.text},${escapeText(obj.text || "")}`;
-    case "path":
+    case "text": {
+      const fs = Math.round((obj.fontSize || 20) * sy);
+      return `T:${Math.round(obj.left)},${Math.round(obj.top)},${fs},${obj.fill || theme.text},${escapeText(obj.text || "")}`;
+    }
+
+    case "path": {
       if (obj.shapeType === "diamond") {
-        const w = Math.round(obj.width || 60);
-        const h = Math.round(obj.height || 60);
+        const w = Math.round((obj.width || 60) * sx);
+        const h = Math.round((obj.height || 60) * sy);
         return `D:${Math.round(obj.left || 0)},${Math.round(obj.top || 0)},${w},${h},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
       }
       return null;
+    }
+
     default:
       return null;
   }

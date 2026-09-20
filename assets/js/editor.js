@@ -20,6 +20,85 @@ function getThemeColors() {
     };
 }
 
+/**
+ * Схлопывает scaleX/scaleY в реальные размеры объекта.
+ *
+ * Зачем: Fabric при растягивании за уголок меняет именно scaleX/scaleY,
+ * а width/height/fontSize остаются исходными. SheetLang не хранит scale,
+ * поэтому без этой нормализации реальные размеры теряются при Push.
+ *
+ * Вызывается после каждого object:modified.
+ */
+function flattenScale(obj) {
+    if (!obj) return;
+    const sx = obj.scaleX || 1;
+    const sy = obj.scaleY || 1;
+    if (sx === 1 && sy === 1) return;
+
+    switch (obj.type) {
+        case "i-text":
+        case "text":
+            // Для текста берём sy: растянули по вертикали — шрифт стал крупнее.
+            obj.set({
+                fontSize: Math.max(1, (obj.fontSize || 20) * sy),
+                scaleX: 1,
+                scaleY: 1,
+            });
+            break;
+
+        case "ellipse":
+            obj.set({
+                rx: (obj.rx || 0) * sx,
+                ry: (obj.ry || 0) * sy,
+                scaleX: 1,
+                scaleY: 1,
+            });
+            break;
+
+        case "rect":
+            obj.set({
+                width: (obj.width || 0) * sx,
+                height: (obj.height || 0) * sy,
+                scaleX: 1,
+                scaleY: 1,
+            });
+            break;
+
+        case "line":
+            obj.set({
+                x1: obj.x1 * sx,
+                y1: obj.y1 * sy,
+                x2: obj.x2 * sx,
+                y2: obj.y2 * sy,
+                scaleX: 1,
+                scaleY: 1,
+            });
+            break;
+
+        case "path":
+            // Ромб: width/height у Path производные от path-массива,
+            // поэтому пересобираем path вручную.
+            if (obj.shapeType === "diamond") {
+                const w = (obj.width || 60) * sx;
+                const h = (obj.height || 60) * sy;
+                obj.set({ scaleX: 1, scaleY: 1 });
+                obj.path = [
+                    ["M", w / 2, 0],
+                    ["L", w, h / 2],
+                    ["L", w / 2, h],
+                    ["L", 0, h / 2],
+                    ["Z"],
+                ];
+                obj.dirty = true;
+                if (obj._calcBounds) obj._calcBounds();
+            }
+            break;
+    }
+
+    obj.setCoords();
+    obj.dirty = true;
+}
+
 function normalizeColor(color) {
     if (!color) return "";
     if (color.startsWith("#")) return color.toLowerCase();
@@ -153,7 +232,11 @@ function bindCanvasEvents() {
     canvas.on("selection:updated", () => document.dispatchEvent(new CustomEvent("selection:changed")));
     canvas.on("selection:cleared", () => document.dispatchEvent(new CustomEvent("selection:changed")));
     canvas.on("object:added", markDirty);
-    canvas.on("object:modified", () => { markDirty(); saveUndo(); });
+    canvas.on("object:modified", (e) => {
+        if (e && e.target) flattenScale(e.target);
+        markDirty();
+        saveUndo();
+    });
     canvas.on("object:removed", () => { markDirty(); saveUndo(); });
     canvas.on("path:created", () => { markDirty(); saveUndo(); });
 }
