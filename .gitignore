@@ -1,11 +1,15 @@
-# Тестовые данные эмулятора GitHub API
-test/data-files/
-
 # Локальные файлы Node
 node_modules/
+
+# Vite: артефакты dev-сервера и сборки
+dist/
+.vite/
 
 # JetBrains IDE
 .idea/
 
 # Локальные агент-инструкции (не публиковать)
 AGENTS.md
+
+# Дамп кодовой базы (генерируется автоматически)
+CODEBASE_TREE.md
