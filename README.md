@@ -4,102 +4,145 @@
 
 ## Страницы
 
-| Файл | Назначение |
-|------|---------|
-| `index.html` | Публичная стартовая страница: две кнопки + горячие клавиши + переключатель темы |
-| `login.html` | Только вход через Google; автоматически перенаправляет в редактор, если сессия существует |
-| `editor.html` | Полный редактор (защищён сессией), панель инструментов, панель свойств |
-| `view.html` | Публичный просмотрщик (только чтение), автообновление из Sheets через API-ключ |
+| Файл          | Назначение                                                               |
+|---------------|--------------------------------------------------------------------------|
+| `index.html`  | Публичная стартовая страница: две кнопки + переключатель темы + хоткеи   |
+| `login.html`  | Google OAuth вход. Если сессия есть — редирект на `editor.html`          |
+| `editor.html` | Полный редактор (защищён сессией): toolbar, properties, Pull/Push        |
+| `view.html`   | Публичный просмотрщик (read-only), автообновление из Sheets по API-ключу |
 
-## Архитектура
+## Стек
 
-- `assets/js/config.js` — Google Client ID
-- `assets/js/auth.js` — Google OAuth + сессия (`schema_editor_session` в localStorage)
-- `assets/js/theme.js` — Светлая/тёмная тема (`schema_editor_theme` в localStorage)
-- `assets/js/hotkeys.js` — Общий модуль горячих клавиш
-- `assets/css/theme.css` — CSS-переменные для тем
-- `assets/js/editor.js` — Canvas на Fabric.js, инструменты, сетка, фигуры, стрелки
-- `assets/js/toolbar.js` — Панель свойств
-- `assets/js/history.js` — Отмена/повтор (максимум 50 состояний)
-- `assets/js/sheetlang.js` — Парсинг/сериализация SheetLang ↔ формат Google Sheets
-- `assets/js/icons.js` — SVG-иконки
-- `assets/js/editor-app.js` — Точка входа редактора: Google OAuth, синхронизация с Sheets (Pull/Push), горячие клавиши
-- `assets/js/app.js` — Точка входа просмотрщика: только чтение, автообновление из Sheets через API-ключ
+- **Vanilla JS** + ES-модули
+- **Fabric.js 5.3.0** — подключается с CDN на каждой странице
+- **Vite 5** — dev-сервер (HMR) и сборка
+- **Google Sheets API** — хранилище данных (OAuth для Editor, API-ключ для Viewer)
+- **GitHub Actions** — деплой на GitHub Pages
+
+## Структура
+
+```
+├── index.html, login.html, editor.html, view.html    ← точки входа (MPA)
+│
+├── assets/
+│   ├── css/
+│   │   └── screen.css                                ← все стили и темы
+│   └── js/                                           ← ES-модули (собираются Vite)
+│       ├── app.js                                    ← entry Viewer
+│       ├── editor-app.js                             ← entry Editor
+│       ├── editor.js                                 ← canvas, инструменты, сетка
+│       ├── sheetlang.js                              ← parse/serialize SheetLang
+│       ├── history.js                                ← undo/redo (50 снапшотов)
+│       ├── toolbar.js                                ← панель свойств
+│       └── icons.js                                  ← SVG-иконки
+│
+├── public/                                           ← копируется в dist/ как есть
+│   └── assets/js/
+│       ├── config.js                                 ← Google Client ID
+│       ├── auth.js                                   ← Google OAuth + сессия
+│       ├── theme.js                                  ← светлая/тёмная тема
+│       └── hotkeys.js                                ← общий модуль хоткеев
+│
+├── data/
+│   └── sheetlang-spec.md                             ← спецификация формата
+│
+├── .github/workflows/deploy.yml                      ← GitHub Actions: сборка + деплой
+├── vite.config.js
+├── package.json
+└── README.md
+```
+
+**Почему два места для JS:** `assets/js/` — ES-модули (Vite их бандлит), `public/assets/js/` — классические скрипты,
+которые подключаются через `<script src="...">` без `type="module"` и используют глобалы (`window.Theme`,
+`window.Hotkeys`, `window.Auth`, `window.APP_CONFIG`). Vite копирует `public/` в `dist/` без обработки. В будущем (Фаза
+
+4) они переедут в модули, и `public/` исчезнет.
 
 ## Локальная разработка
 
 ```powershell
-python -m http.server 8099
+npm install      # один раз
+npm run dev      # dev-сервер с HMR на http://localhost:8099
 ```
 
-Откройте:
+Скрипты:
+
+| Команда           | Что делает                                             |
+|-------------------|--------------------------------------------------------|
+| `npm run dev`     | Vite dev-сервер с hot module replacement               |
+| `npm run build`   | Сборка в `dist/` (минификация, хеши)                   |
+| `npm run preview` | Предпросмотр собранного сайта на http://localhost:4173 |
+
+Страницы в dev-режиме:
+
 - http://localhost:8099/index.html
 - http://localhost:8099/view.html
-- http://localhost:8099/editor.html
 - http://localhost:8099/login.html
+- http://localhost:8099/editor.html
+
+**Google OAuth на localhost:** добавь `http://localhost:8099` и `http://localhost:4173` в **Authorized JavaScript
+origins** твоего OAuth-клиента в [Google Cloud Console](https://console.cloud.google.com/apis/credentials). Иначе Google
+заблокирует вход.
 
 ## Хранение
 
 - **Editor** (`editor-app.js`): OAuth-токен → `sheets.googleapis.com` (чтение/запись)
 - **Viewer** (`app.js`): API-ключ → `sheets.googleapis.com` (только чтение, автообновление раз в 24 ч)
-- Оба используют один и тот же `CONFIG.sheetsId`, указывающий на один Google Sheet
+- Оба используют один `CONFIG.sheetsId`
 
 ## Формат листа (SheetLang)
 
-Одна строка = одна линия (`R:`, `D:`, `C:`, `L:`, `A:`, `T:`, `G:`)
+Одна строка = один объект. Подробнее — `data/sheetlang-spec.md`.
 
 ```
 R:x,y,w,h,fill,stroke,sw           Прямоугольник
-D:x,y,w,h,fill,stroke,sw           Ромб (ограничивающий прямоугольник)
-C:cx,cy,rx,ry,fill,stroke,sw       Круг/эллипс (центр)
+D:x,y,w,h,fill,stroke,sw           Ромб (bounding box)
+C:cx,cy,rx,ry,fill,stroke,sw       Круг/эллипс (x,y — центр)
 L:x1,y1,x2,y2,stroke,sw            Линия
 A:x1,y1,x2,y2,stroke,sw            Стрелка
 T:x,y,fontSize,color,text          Текст (без запятых)
-G:n1,n2,...                        Группа (номера строк с 1)
+G:n1,n2,...                        Группа (1-based номера строк листа)
 # ...                              Комментарий
 ```
-
-Полная спецификация: `data/sheetlang-spec.md`
 
 ## Горячие клавиши
 
 ### Все страницы
-| Клавиша | Действие |
-|-----|--------|
-| `V` | Открыть Viewer |
-| `E` | Открыть Login (Editor) |
-| `D` | Переключить тему |
-| `?` / `H` | Показать справку по горячим клавишам |
 
-### Только в редакторе
-| Клавиша | Действие |
-|-----|--------|
-| `V` | Инструмент выделения |
-| `R` | Прямоугольник |
-| `D` | Ромб |
-| `O` | Круг |
-| `L` | Линия |
-| `A` | Стрелка |
-| `T` | Текст |
-| `P` | Карандаш |
-| `E` | Ластик |
-| `H` / `Space` | Инструмент панорамирования |
-| `Ctrl+G` | Группировать |
-| `Ctrl+Shift+G` | Разгруппировать |
-| `Ctrl+Z` / `Ctrl+Y` | Отменить / Повторить |
-| `Ctrl+S` | Отправить в Sheets |
-| `Del` | Удалить выбранное |
-| `Esc` | Снять выделение |
-| Wheel | Масштаб у курсора |
-| Middle button / Space+LMB | Панорамирование |
+| Клавиша   | Действие         |
+|-----------|------------------|
+| `D`       | Переключить тему |
+| `?` / `H` | Показать справку |
+
+### Только редактор
+
+| Клавиша                           | Действие                                                     |
+|-----------------------------------|--------------------------------------------------------------|
+| `V` / `R` / `D` / `O` / `L` / `A` | Инструменты: select, rectangle, diamond, circle, line, arrow |
+| `T` / `P` / `E`                   | Текст, карандаш, ластик                                      |
+| `H` / `Space`                     | Рука (панорамирование)                                       |
+| `Ctrl+G` / `Ctrl+Shift+G`         | Группировать / разгруппировать                               |
+| `Ctrl+Z` / `Ctrl+Y`               | Undo / Redo                                                  |
+| `Ctrl+S`                          | Push в Google Sheets                                         |
+| `Del`                             | Удалить выделенное                                           |
+| `Esc`                             | Снять выделение                                              |
+| Колесо                            | Zoom вокруг курсора                                          |
 
 ## Тема
 
-- Сохраняется в `localStorage.schema_editor_theme`
-- Встроенный скрипт в `<head>` каждой страницы применяет тему до первой отрисовки (без мигания)
+- Хранится в `localStorage.schema_editor_theme`
+- Инлайн-скрипт в `<head>` каждой страницы применяет тему до первой отрисовки (без мигания)
 - CSS-переменные: `--bg`, `--text`, `--accent`, `--obj-stroke`, `--obj-fill`, `--obj-text`, `--pencil-color`
-- `editor.js:updateObjectsForTheme()` перекрашивает существующие объекты canvas при смене темы
+- `editor.js:updateObjectsForTheme()` перекрашивает объекты canvas при смене темы
 
 ## Развёртывание
 
-`.github/workflows/deploy.yml` — push в `main` → GitHub Pages. Без шагов сборки. Убедитесь, что весь HTML использует относительные пути (`assets/css/`, `assets/js/`, `view.html` и т.д.).
+`.github/workflows/deploy.yml` — push в `main` → GitHub Actions:
+
+1. `npm ci`
+2. `npm run build` → собирает `dist/`
+3. Публикует `dist/` на GitHub Pages через `actions/deploy-pages`
+
+**Важно:** в репозитории **Settings → Pages → Source** должно быть выбрано **GitHub Actions**, а не
+`Deploy from a branch`. Иначе Pages отдаёт содержимое ветки `main`, а не собранный артефакт, и классические скрипты из
+`public/` дают 404.
