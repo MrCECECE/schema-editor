@@ -6,9 +6,12 @@ import { fileURLToPath } from "url";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
-    // Относительные пути в собранном HTML.
-    // Обязательно для GitHub Pages: сайт может лежать в подпапке.
-    base: "./",
+    // Base path.
+    //   - В dev: "./" (localhost, корень сервера).
+    //   - В build: "/schema-editor/" (GitHub Pages, репозиторий в подпапке).
+    // Иначе классические скрипты из public/ резолвятся в /assets/js/... и дают 404
+    // на Pages, потому что сайт лежит в /schema-editor/.
+    base: process.env.NODE_ENV === "production" ? "/schema-editor/" : "./",
 
     build: {
         outDir: "dist",
