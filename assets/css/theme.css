@@ -1,6 +1,0 @@
-/* theme.css — совместимость и fallback.
-   Основные CSS-переменные живут в screen.css (.theme-dark / .theme-light). */
-body {
-    background: var(--bg);
-    color: var(--text);
-}
