@@ -1,4 +1,4 @@
-import { getCanvasBgColor } from "./editor.js";
+import { getCanvasBgColor } from "./editor.js"; // eslint-disable-line no-unused-vars
 
 const fabric = window.fabric;
 
@@ -18,6 +18,17 @@ function num(v) {
 
 function escapeText(t) {
   return String(t).replace(/[\r\n]+/g, " ");
+}
+
+/**
+ * Мировые координаты объекта: центр + масштаб + поворот (угол отбрасываем).
+ * Работает и для top-level, и для членов групп — calcTransformMatrix()
+ * в Fabric 5.x включает трансформы всех родителей.
+ */
+function worldTransform(obj) {
+  const m = obj.calcTransformMatrix();
+  const d = fabric.util.qrDecompose(m);
+  return { matrix: m, cx: d.translateX, cy: d.translateY, sx: d.scaleX, sy: d.scaleY };
 }
 
 /**
@@ -98,6 +109,11 @@ function buildObject(type, p) {
             shapeType: "diamond",
           }
       );
+      // Явно фиксируем pathOffset и размеры, чтобы дальнейшие мутации
+      // (move/scale) не приводили к рассинхрону с encodeObject.
+      path.pathOffset = new fabric.Point(w / 2, h / 2);
+      path.width = w;
+      path.height = h;
       return { kind: "diamond", data: path };
     }
     case "C": {
@@ -202,11 +218,6 @@ export function createFabricObject(obj) {
   }
 }
 
-/**
- * @param {fabric.Canvas} canvas
- * @param {object[]} objects
- * @param {number[][]} groups — массивы 0-based индексов в objects
- */
 export function renderOnCanvas(canvas, objects, groups) {
   canvas.clear();
 
@@ -232,33 +243,42 @@ export function renderOnCanvas(canvas, objects, groups) {
 
 export function encodeCanvas(canvas) {
   const lines = [];
-  const objectToLine = new Map();
+  const groupLines = [];
   const objects = (canvas && canvas.getObjects ? canvas.getObjects() : (canvas.objects || []))
       .filter((obj) => obj && !obj.excludeFromExport && obj.type !== "image");
 
-  for (const obj of objects) {
-    if (obj.type === "group") continue;
+  function walk(obj) {
+    if (!obj || obj.excludeFromExport) return;
+
+    if (obj.type === "group") {
+      if (isArrowGroup(obj)) {
+        const line = encodeArrow(obj);
+        if (line) lines.push(line);
+        return;
+      }
+      // Обычная группа: рекурсивно кодируем членов как top-level (через
+      // world-matrix), запоминаем их номера строк и в конце сделаем G:.
+      const memberLines = [];
+      const members = getGroupMembers(obj);
+      for (const m of members) {
+        const before = lines.length;
+        walk(m);
+        if (lines.length > before) {
+          memberLines.push(before + 1); // 1-based
+        }
+      }
+      if (memberLines.length > 0) {
+        groupLines.push("G:" + memberLines.join(","));
+      }
+      return;
+    }
+
     const line = encodeObject(obj);
-    if (line) {
-      objectToLine.set(obj, lines.length + 1);
-      lines.push(line);
-    }
+    if (line) lines.push(line);
   }
 
-  for (const obj of objects) {
-    if (obj.type !== "group") continue;
-    if (isArrowGroup(obj)) {
-      const line = encodeArrow(obj);
-      if (line) lines.push(line);
-      continue;
-    }
-    const members = getGroupMembers(obj);
-    const memberLines = members.map((m) => objectToLine.get(m)).filter(Boolean);
-    if (memberLines.length > 0) {
-      lines.push("G:" + memberLines.join(","));
-    }
-  }
-
+  objects.forEach(walk);
+  groupLines.forEach((g) => lines.push(g));
   return lines;
 }
 
@@ -278,64 +298,63 @@ function encodeArrow(group) {
   const members = getGroupMembers(group);
   const lineObj = members.find((o) => o.type === "line");
   if (!lineObj) return null;
-  const cx = group.left + group.width / 2;
-  const cy = group.top + group.height / 2;
-  const rad = (fabric.util && fabric.util.degreesToRadians)
-      ? fabric.util.degreesToRadians(group.angle || 0)
-      : ((group.angle || 0) * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const sx = group.scaleX || 1;
-  const sy = group.scaleY || 1;
-  const rot = (lx, ly) => ({
-    x: cx + cos * lx * sx - sin * ly * sy,
-    y: cy + sin * lx * sx + cos * ly * sy,
-  });
-  const a = rot(lineObj.x1, lineObj.y1);
-  const b = rot(lineObj.x2, lineObj.y2);
-  return `A:${Math.round(a.x)},${Math.round(a.y)},${Math.round(b.x)},${Math.round(b.y)},${lineObj.stroke || "#ffffff"},${lineObj.strokeWidth || 2}`;
+
+  // Мировые координаты концов линии внутри группы.
+  const p = lineObj.calcLinePoints();
+  const m = lineObj.calcTransformMatrix();
+  const A = fabric.util.transformPoint(new fabric.Point(p.x1, p.y1), m);
+  const B = fabric.util.transformPoint(new fabric.Point(p.x2, p.y2), m);
+
+  return `A:${Math.round(A.x)},${Math.round(A.y)},${Math.round(B.x)},${Math.round(B.y)},${lineObj.stroke || "#ffffff"},${lineObj.strokeWidth || 2}`;
 }
 
 function encodeObject(obj) {
   const theme = getThemeColors();
-
-  // Страховка на случай объектов, которые не были нормализованы через
-  // flattenScale() в editor.js (например, загружены из старого состояния).
-  const sx = obj.scaleX || 1;
-  const sy = obj.scaleY || 1;
+  const { matrix: m, cx, cy, sx, sy } = worldTransform(obj);
 
   switch (obj.type) {
     case "rect": {
       const w = Math.round((obj.width || 0) * sx);
       const h = Math.round((obj.height || 0) * sy);
-      return `R:${Math.round(obj.left)},${Math.round(obj.top)},${w},${h},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
+      const left = Math.round(cx - w / 2);
+      const top = Math.round(cy - h / 2);
+      return `R:${left},${top},${w},${h},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
     }
 
     case "ellipse": {
       const rx = Math.round((obj.rx || 0) * sx);
       const ry = Math.round((obj.ry || 0) * sy);
-      return `C:${Math.round(obj.left)},${Math.round(obj.top)},${rx},${ry},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
+      const left = Math.round(cx - rx);
+      const top = Math.round(cy - ry);
+      return `C:${left},${top},${rx},${ry},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
     }
 
     case "line": {
-      const x1 = Math.round(obj.x1 * sx);
-      const y1 = Math.round(obj.y1 * sy);
-      const x2 = Math.round(obj.x2 * sx);
-      const y2 = Math.round(obj.y2 * sy);
-      return `L:${x1},${y1},${x2},${y2},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
+      // Используем мировые концы, а не obj.x1/y1/x2/y2 — они не обновляются
+      // при перемещении/повороте объекта.
+      const p = obj.calcLinePoints();
+      const A = fabric.util.transformPoint(new fabric.Point(p.x1, p.y1), m);
+      const B = fabric.util.transformPoint(new fabric.Point(p.x2, p.y2), m);
+      return `L:${Math.round(A.x)},${Math.round(A.y)},${Math.round(B.x)},${Math.round(B.y)},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
     }
 
     case "i-text":
     case "text": {
       const fs = Math.round((obj.fontSize || 20) * sy);
-      return `T:${Math.round(obj.left)},${Math.round(obj.top)},${fs},${obj.fill || theme.text},${escapeText(obj.text || "")}`;
+      const w = (obj.width || 0) * sx;
+      const h = (obj.height || 0) * sy;
+      const left = Math.round(cx - w / 2);
+      const top = Math.round(cy - h / 2);
+      return `T:${left},${top},${fs},${obj.fill || theme.text},${escapeText(obj.text || "")}`;
     }
 
     case "path": {
       if (obj.shapeType === "diamond") {
         const w = Math.round((obj.width || 60) * sx);
         const h = Math.round((obj.height || 60) * sy);
-        return `D:${Math.round(obj.left || 0)},${Math.round(obj.top || 0)},${w},${h},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
+        const left = Math.round(cx - w / 2);
+        const top = Math.round(cy - h / 2);
+        return `D:${left},${top},${w},${h},${obj.fill || theme.fill},${obj.stroke || theme.stroke},${obj.strokeWidth || 2}`;
       }
       return null;
     }

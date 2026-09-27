@@ -4,9 +4,9 @@ let canvas = null;
 let currentTool = "select";
 let gridEnabled = true;
 
-let isDrawingLine = null;   // { startX, startY, tool, shape? }
-let drawStart = null;       // { x, y, shape? }
-let panState = null;        // { startX, startY, startVpt }
+let isDrawingLine = null;
+let drawStart = null;
+let panState = null;
 let prevToolBeforeSpace = null;
 let viewOnly = false;
 
@@ -33,12 +33,11 @@ function flattenScale(obj) {
     if (!obj) return;
     const sx = obj.scaleX || 1;
     const sy = obj.scaleY || 1;
-    if (sx === 1 && sy === 1) return;
+    if (sx === 1 && sy === 1 && !obj.angle) return;
 
     switch (obj.type) {
         case "i-text":
         case "text":
-            // Для текста берём sy: растянули по вертикали — шрифт стал крупнее.
             obj.set({
                 fontSize: Math.max(1, (obj.fontSize || 20) * sy),
                 scaleX: 1,
@@ -64,24 +63,40 @@ function flattenScale(obj) {
             });
             break;
 
-        case "line":
+        case "line": {
+            // Fabric.Line в 5.x: x1/y1/x2/y2 — точки в "world" линии,
+            // а рендер использует calcLinePoints() (local) + transform matrix.
+            // Здесь считаем мировые координаты концов и пересобираем линию,
+            // чтобы encodeObject() мог отдать корректные x1/y1/x2/y2.
+            const p = obj.calcLinePoints();
+            const m = obj.calcTransformMatrix();
+            const A = fabric.util.transformPoint(new fabric.Point(p.x1, p.y1), m);
+            const B = fabric.util.transformPoint(new fabric.Point(p.x2, p.y2), m);
+
             obj.set({
-                x1: obj.x1 * sx,
-                y1: obj.y1 * sy,
-                x2: obj.x2 * sx,
-                y2: obj.y2 * sy,
-                scaleX: 1,
-                scaleY: 1,
+                scaleX: 1, scaleY: 1, angle: 0,
+                originX: "left", originY: "top",
+                x1: A.x, y1: A.y, x2: B.x, y2: B.y,
+                left: Math.min(A.x, B.x),
+                top: Math.min(A.y, B.y),
+                width: Math.abs(B.x - A.x),
+                height: Math.abs(B.y - A.y),
             });
+            obj.points = [A.x, A.y, B.x, B.y];
+            obj.dirty = true;
             break;
+        }
 
         case "path":
             // Ромб: width/height у Path производные от path-массива,
-            // поэтому пересобираем path вручную.
+            // поэтому пересобираем path вручную и обновляем pathOffset.
             if (obj.shapeType === "diamond") {
-                const w = (obj.width || 60) * sx;
-                const h = (obj.height || 60) * sy;
-                obj.set({ scaleX: 1, scaleY: 1 });
+                const w = Math.max(1, (obj.width || 60) * sx);
+                const h = Math.max(1, (obj.height || 60) * sy);
+                const center = obj.getCenterPoint();
+
+                obj.set({ scaleX: 1, scaleY: 1, angle: 0 });
+
                 obj.path = [
                     ["M", w / 2, 0],
                     ["L", w, h / 2],
@@ -89,8 +104,12 @@ function flattenScale(obj) {
                     ["L", 0, h / 2],
                     ["Z"],
                 ];
+                obj.pathOffset = new fabric.Point(w / 2, h / 2);
+                obj.width = w;
+                obj.height = h;
+                obj.left = center.x - w / 2;
+                obj.top = center.y - h / 2;
                 obj.dirty = true;
-                if (obj._calcBounds) obj._calcBounds();
             }
             break;
     }
@@ -160,7 +179,13 @@ export function setViewOnlyMode(on) {
     if (canvas) {
         canvas.selection = !viewOnly && currentTool === "select";
         canvas.skipTargetFind = viewOnly || (currentTool !== "select" && currentTool !== "eraser");
-        if (!viewOnly) canvas.discardActiveObject();
+        if (viewOnly) {
+            // В view-only: глушим рисование и снимаем выделение/редактирование.
+            canvas.isDrawingMode = false;
+            canvas.discardActiveObject();
+            const active = canvas.getActiveObject();
+            if (active && active.isEditing) active.exitEditing();
+        }
         canvas.requestRenderAll();
     }
 }
@@ -199,17 +224,23 @@ function installGridBackground() {
         const vpt = this.viewportTransform || [1, 0, 0, 1, 0, 0];
         const zoom = Math.abs(vpt[0]) || 1;
         const step = GRID_SIZE * zoom;
-        const x0 = vpt[4] ? -vpt[4] : 0;
-        const y0 = vpt[5] ? -vpt[5] : 0;
+        // Экранная координата мировой линии x=0 — это vpt[4] (translate).
+        // Раньше стоял минус — сетка уезжала относительно реальных снап-точек.
+        const x0 = vpt[4] || 0;
+        const y0 = vpt[5] || 0;
 
         ctx.save();
         ctx.beginPath();
-        for (let k = Math.ceil(-x0 / step); k <= Math.floor((w - x0) / step); k++) {
+        const kMinX = Math.floor(-x0 / step);
+        const kMaxX = Math.ceil((w - x0) / step);
+        for (let k = kMinX; k <= kMaxX; k++) {
             const px = x0 + k * step;
             ctx.moveTo(px, 0);
             ctx.lineTo(px, h);
         }
-        for (let k = Math.ceil(-y0 / step); k <= Math.floor((h - y0) / step); k++) {
+        const kMinY = Math.floor(-y0 / step);
+        const kMaxY = Math.ceil((h - y0) / step);
+        for (let k = kMinY; k <= kMaxY; k++) {
             const py = y0 + k * step;
             ctx.moveTo(0, py);
             ctx.lineTo(w, py);
@@ -263,20 +294,13 @@ function bindSpacePan() {
     });
 }
 
-/**
- * Мобильные жесты:
- *  - один палец: панорамирование (в view-only режиме или с инструментом "рука")
- *  - два пальца: панорамирование + пинч-зум (всегда)
- * Слушатели висят на wrapper'е канваса в capture-фазе и перехватывают
- * события до Fabric.js там, где мы обрабатываем их сами.
- */
 function bindTouchGestures() {
     if (!canvas) return;
     const target = canvas.wrapperEl || canvas.upperCanvasEl;
     if (!target) return;
 
-    let pinch = null;      // { startDist, startZoom, startVpt, midX, midY }
-    let oneFinger = null;  // { startX, startY, startVpt }
+    let pinch = null;
+    let oneFinger = null;
 
     const dist = (t1, t2) => Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
     const mid = (t1, t2) => ({
@@ -322,13 +346,11 @@ function bindTouchGestures() {
             const d = dist(t1, t2);
             const m = mid(t1, t2);
 
-            // Пан по смещению середины
             const vpt = pinch.startVpt.slice();
             vpt[4] = pinch.startVpt[4] + (m.x - pinch.midX);
             vpt[5] = pinch.startVpt[5] + (m.y - pinch.midY);
             canvas.setViewportTransform(vpt);
 
-            // Зум вокруг середины
             let newZoom = pinch.startZoom * (d / pinch.startDist);
             newZoom = Math.max(0.1, Math.min(10, newZoom));
             const rect = canvas.upperCanvasEl.getBoundingClientRect();
@@ -359,8 +381,6 @@ function bindTouchGestures() {
             return;
         }
         if (e.touches.length === 1) {
-            // Один палец остался после пинча — переходим в панорамирование,
-            // если режим это позволяет, иначе отдаём Fabric'у.
             const wasPinching = !!pinch;
             pinch = null;
             if (wasPinching && (viewOnly || currentTool === "hand")) {
@@ -389,8 +409,6 @@ export function markDirty() {
 function onMouseDown(opt) {
     const e = opt.e;
 
-    // Панорамирование (средняя кнопка мыши или инструмент "рука")
-    // должно работать и в view-only режиме.
     if (e.button === 1 || currentTool === "hand") {
         panState = {
             startX: e.clientX,
@@ -453,6 +471,9 @@ function onMouseMove(opt) {
         const y = snap(pointer.y);
         const theme = getThemeColors();
         if (!isDrawingLine.shape) {
+            // Дефолтный origin (left/top). Fabric сам проставит left/top
+            // из x1/y1/x2/y2 в _setWidthHeight(). Origin "center" тут был
+            // причиной визуального сдвига интерактивной линии.
             const line = new fabric.Line(
                 [isDrawingLine.startX, isDrawingLine.startY, x, y],
                 {
@@ -460,8 +481,6 @@ function onMouseMove(opt) {
                     strokeWidth: 2,
                     selectable: false,
                     evented: false,
-                    originX: "center",
-                    originY: "center",
                 }
             );
             line.set({ excludeFromExport: true });
@@ -469,6 +488,11 @@ function onMouseMove(opt) {
             canvas.add(line);
         } else {
             isDrawingLine.shape.set({ x2: x, y2: y });
+            // Без этого left/top/width/height остаются от первого кадра,
+            // и линия визуально "отстаёт" от курсора.
+            if (typeof isDrawingLine.shape._setWidthHeight === "function") {
+                isDrawingLine.shape._setWidthHeight();
+            }
             canvas.requestRenderAll();
         }
     }
@@ -573,17 +597,22 @@ function createShape(tool, x1, y1, x2, y2) {
                 fill: theme.fill, stroke: theme.stroke, strokeWidth: 2,
             });
         case "diamond": {
+            const w = Math.max(1, width);
+            const h = Math.max(1, height);
             const path = new fabric.Path(
-                `M ${width / 2} 0 L ${width} ${height / 2} L ${width / 2} ${height} L 0 ${height / 2} Z`,
+                `M ${w / 2} 0 L ${w} ${h / 2} L ${w / 2} ${h} L 0 ${h / 2} Z`,
                 {
                     fill: theme.fill,
                     stroke: theme.stroke,
                     strokeWidth: 2,
-                    left,
-                    top,
+                    left: (x1 + x2) / 2 - w / 2,
+                    top: (y1 + y2) / 2 - h / 2,
                 }
             );
             path.set({ shapeType: "diamond" });
+            path.pathOffset = new fabric.Point(w / 2, h / 2);
+            path.width = w;
+            path.height = h;
             return path;
         }
         case "circle":
@@ -607,16 +636,23 @@ function updateShape(shape, tool, x1, y1, x2, y2) {
     if (tool === "rectangle") {
         shape.set({ left, top, width, height });
     } else if (tool === "diamond") {
+        const w = Math.max(1, width);
+        const h = Math.max(1, height);
+        const cx = (x1 + x2) / 2;
+        const cy = (y1 + y2) / 2;
         shape.path = [
-            ["M", width / 2, 0],
-            ["L", width, height / 2],
-            ["L", width / 2, height],
-            ["L", 0, height / 2],
+            ["M", w / 2, 0],
+            ["L", w, h / 2],
+            ["L", w / 2, h],
+            ["L", 0, h / 2],
             ["Z"],
         ];
+        shape.pathOffset = new fabric.Point(w / 2, h / 2);
+        shape.width = w;
+        shape.height = h;
+        shape.left = cx - w / 2;
+        shape.top = cy - h / 2;
         shape.dirty = true;
-        shape.set({ left, top });
-        shape._calcBounds();
         shape.setCoords();
     } else if (tool === "circle") {
         shape.set({ rx: width / 2, ry: height / 2 });

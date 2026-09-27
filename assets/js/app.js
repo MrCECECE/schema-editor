@@ -2,8 +2,8 @@ import {
     initEditor, getCanvas, toggleGrid, updateObjectsForTheme,
     getCanvasBgColor, updateZoomUI, setViewOnlyMode,
 } from "./editor.js";
-import { parseLines, renderOnCanvas } from "./sheetlang.js";
-import { ICONS } from "./icons.js";
+import {parseLines, renderOnCanvas} from "./sheetlang.js";
+import {ICONS} from "./icons.js";
 
 const CONFIG = {
     sheetsId: "1e3ut8uuhbwHS0ZpZL-VWvP886mBXwgFUzSRrjkQS15k",
@@ -24,13 +24,26 @@ function installFabricFixes() {
             ctx.textBaseline = "alphabetic";
             if (this.path) {
                 switch (this.pathAlign) {
-                    case "center": ctx.textBaseline = "middle"; break;
-                    case "ascender": ctx.textBaseline = "top"; break;
-                    case "descender": ctx.textBaseline = "bottom"; break;
+                    case "center":
+                        ctx.textBaseline = "middle";
+                        break;
+                    case "ascender":
+                        ctx.textBaseline = "top";
+                        break;
+                    case "descender":
+                        ctx.textBaseline = "bottom";
+                        break;
                 }
             }
             ctx.font = this._getFontDeclaration(charStyle, forMeasuring);
         };
+    }
+    // Регистрируем shapeType в stateProperties, чтобы canvas.toJSON()
+    // (используется, например, для экспорта/снапшотов) не терял ромб.
+    if (fabric.Path && fabric.Path.prototype.stateProperties &&
+        fabric.Path.prototype.stateProperties.indexOf("shapeType") === -1) {
+        fabric.Path.prototype.stateProperties =
+            fabric.Path.prototype.stateProperties.concat(["shapeType"]);
     }
 }
 
@@ -101,8 +114,14 @@ function init() {
 function bindHotkeys() {
     Hotkeys.bind({
         'd': onThemeToggle,
-        '?': () => { const d = document.getElementById('hotkeyHelp'); if (d) d.showModal(); },
-        'h': () => { const d = document.getElementById('hotkeyHelp'); if (d) d.showModal(); },
+        '?': () => {
+            const d = document.getElementById('hotkeyHelp');
+            if (d) d.showModal();
+        },
+        'h': () => {
+            const d = document.getElementById('hotkeyHelp');
+            if (d) d.showModal();
+        },
     });
 }
 
@@ -131,7 +150,10 @@ function fitCanvas() {
 }
 
 async function refresh() {
-    if (!CONFIG.sheetsId) { setStatus("Configure sheetsId in CONFIG", "info"); return; }
+    if (!CONFIG.sheetsId) {
+        setStatus("Configure sheetsId in CONFIG", "info");
+        return;
+    }
     setStatus("Loading...");
     try {
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.sheetsId}/values/Sheet1?key=${CONFIG.apiKey}`;
@@ -139,7 +161,7 @@ async function refresh() {
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const rows = rowsFromData(data);
-        const { objects, groups } = parseLines(rows);
+        const {objects, groups} = parseLines(rows);
 
         if (objects.length > 0) {
             renderOnCanvas(AppState.canvas, objects, groups);
@@ -175,7 +197,10 @@ function formatTimeAgo(date) {
 
 function bindToolbar() {
     const canvas = getCanvas();
-    if (!canvas) { console.error("Canvas not available"); return; }
+    if (!canvas) {
+        console.error("Canvas not available");
+        return;
+    }
 
     const bind = (id, fn) => {
         const el = document.getElementById(id);
@@ -211,13 +236,13 @@ function bindToolbar() {
 
 function exportPNG() {
     const canvas = getCanvas();
-    const dataURL = canvas.toDataURL({ format: "png", multiplier: 2 });
+    const dataURL = canvas.toDataURL({format: "png", multiplier: 2});
     download(dataURL, "schema.png");
 }
 
 function exportSVG() {
     const svg = getCanvas().toSVG();
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const blob = new Blob([svg], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     download(url, "schema.svg");
     setTimeout(() => URL.revokeObjectURL(url), 1000);

@@ -7,7 +7,6 @@ class History {
         this.currentIndex = -1;
         this.maxSize = MAX_SIZE;
         this._suspend = false;
-        // первичный снапшот — чтобы можно было откатить первое действие
         this.saveState();
     }
 
@@ -45,14 +44,33 @@ class History {
 
     loadState(index) {
         return new Promise((resolve) => {
-            const state = JSON.parse(this.stack[index]);
+            let state;
+            try {
+                state = JSON.parse(this.stack[index]);
+            } catch (e) {
+                console.error("history: bad state", e);
+                resolve();
+                return;
+            }
             this._suspend = true;
-            this.canvas.loadFromJSON(state, () => {
-                this.canvas.renderAll();
+            const done = () => {
+                // Явный сброс в любом случае, даже если что-то пойдёт не так.
                 this._suspend = false;
                 document.dispatchEvent(new CustomEvent("canvas:refresh-selection"));
                 resolve();
-            });
+            };
+            try {
+                this.canvas.loadFromJSON(state, () => {
+                    try {
+                        this.canvas.renderAll();
+                    } finally {
+                        done();
+                    }
+                });
+            } catch (e) {
+                console.error("history: loadFromJSON failed", e);
+                done();
+            }
         });
     }
 

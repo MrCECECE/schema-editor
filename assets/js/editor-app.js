@@ -4,10 +4,10 @@ import {
     groupSelected, ungroupSelected, deleteSelected, addText,
     getCanvasBgColor, updateObjectsForTheme, setViewOnlyMode,
 } from "./editor.js";
-import { createHistory } from "./history.js";
-import { parseLines, renderOnCanvas, encodeCanvas } from "./sheetlang.js";
-import { initToolbarUI } from "./toolbar.js";
-import { ICONS } from "./icons.js";
+import {createHistory} from "./history.js";
+import {parseLines, renderOnCanvas, encodeCanvas} from "./sheetlang.js";
+import {initToolbarUI} from "./toolbar.js";
+import {ICONS} from "./icons.js";
 
 const CONFIG = {
     sheetsId: "1e3ut8uuhbwHS0ZpZL-VWvP886mBXwgFUzSRrjkQS15k",
@@ -23,8 +23,11 @@ const AppState = {
     googleUser: null,
     tokenClient: null,
     tokenQueue: [],
+    tokenRequestInFlight: false,
     isMobile: false,
 };
+
+let googleSignInRetries = 0;
 
 function installFabricFixes() {
     // Fabric.js 5.3.0: "alphabetical" — не валидный CanvasTextBaseline
@@ -33,13 +36,26 @@ function installFabricFixes() {
             ctx.textBaseline = "alphabetic";
             if (this.path) {
                 switch (this.pathAlign) {
-                    case "center": ctx.textBaseline = "middle"; break;
-                    case "ascender": ctx.textBaseline = "top"; break;
-                    case "descender": ctx.textBaseline = "bottom"; break;
+                    case "center":
+                        ctx.textBaseline = "middle";
+                        break;
+                    case "ascender":
+                        ctx.textBaseline = "top";
+                        break;
+                    case "descender":
+                        ctx.textBaseline = "bottom";
+                        break;
                 }
             }
             ctx.font = this._getFontDeclaration(charStyle, forMeasuring);
         };
+    }
+    // Регистрируем shapeType в stateProperties, чтобы undo/redo
+    // и canvas.toJSON() не теряли признак "это ромб".
+    if (fabric.Path && fabric.Path.prototype.stateProperties &&
+        fabric.Path.prototype.stateProperties.indexOf("shapeType") === -1) {
+        fabric.Path.prototype.stateProperties =
+            fabric.Path.prototype.stateProperties.concat(["shapeType"]);
     }
 }
 
@@ -103,7 +119,7 @@ function init() {
         const session = Auth.getSession();
         if (session && session.accessToken && window.APP_CONFIG?.googleClientId) {
             AppState.googleToken = session.accessToken;
-            AppState.googleUser = { username: session.email || session.name || "unknown" };
+            AppState.googleUser = {username: session.email || session.name || "unknown"};
         }
 
         showEditor();
@@ -233,9 +249,21 @@ function ensureTokenClient() {
 function initGoogleSignIn() {
     if (!window.APP_CONFIG?.googleClientId) return;
     if (!ensureTokenClient()) {
+        googleSignInRetries++;
+        if (googleSignInRetries > 25) {
+            const container = document.getElementById("google-signin-container");
+            if (container) {
+                container.textContent = "Google API не загрузился. Обновите страницу.";
+                container.style.color = "var(--danger)";
+                container.style.fontSize = "13px";
+                container.style.padding = "var(--space-md)";
+            }
+            return;
+        }
         setTimeout(initGoogleSignIn, 200);
         return;
     }
+    googleSignInRetries = 0;
     const container = document.getElementById("google-signin-container");
     if (!container) return;
     container.innerHTML = "";
@@ -253,18 +281,28 @@ function requestAccessToken() {
         setSaveStatus("Google API не загрузился — обновите страницу", "error");
         return;
     }
+    if (AppState.tokenRequestInFlight) return;
+    AppState.tokenRequestInFlight = true;
     AppState.tokenClient.requestAccessToken();
 }
 
 function getAccessToken() {
     return new Promise((resolve, reject) => {
-        if (!ensureTokenClient()) { reject(new Error("oauth2 not ready")); return; }
-        AppState.tokenQueue.push({ resolve, reject });
+        if (!ensureTokenClient()) {
+            reject(new Error("oauth2 not ready"));
+            return;
+        }
+        AppState.tokenQueue.push({resolve, reject});
+        // Если запрос уже летит — не открываем второй popup.
+        if (AppState.tokenRequestInFlight) return;
+        AppState.tokenRequestInFlight = true;
         AppState.tokenClient.requestAccessToken();
     });
 }
 
 function handleTokenResponse(response) {
+    AppState.tokenRequestInFlight = false;
+
     if (!response || response.error) {
         const err = response?.error || "unknown";
         while (AppState.tokenQueue.length) {
@@ -287,13 +325,15 @@ function handleTokenResponse(response) {
 
     // Одиночный логин через Google-кнопку
     fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-        headers: { Authorization: "Bearer " + response.access_token },
+        headers: {Authorization: "Bearer " + response.access_token},
     })
         .then((res) => res.json())
         .then((info) => {
-            AppState.googleUser = { username: info.email || info.name || "unknown" };
+            AppState.googleUser = {username: info.email || info.name || "unknown"};
         })
-        .catch(() => { AppState.googleUser = { username: "unknown" }; })
+        .catch(() => {
+            AppState.googleUser = {username: "unknown"};
+        })
         .finally(() => {
             setSignedInUI(true);
             updateStatusUser();
@@ -341,10 +381,8 @@ function setSignedInUI(signedIn) {
         const el = document.getElementById(id);
         if (el) el.style.display = signedIn ? "" : "none";
     });
-    // Кнопка выхода показывается, если есть хоть какая-то сессия
     const out = document.getElementById("btn-signout");
     if (out) out.style.display = (signedIn || Auth.getSession()) ? "" : "none";
-    // Google-login показываем только когда не залогинены
     const gs = document.getElementById("google-signin-container");
     if (gs) gs.style.display = signedIn ? "none" : "";
 }
@@ -355,27 +393,34 @@ function rowsFromData(data) {
 }
 
 async function pullFromSheets() {
-    if (!CONFIG.sheetsId) { setSaveStatus("Configure sheetsId in CONFIG", "info"); return; }
-    if (!AppState.googleToken) { setSaveStatus("Войдите, чтобы загрузить", "info"); return; }
+    if (!CONFIG.sheetsId) {
+        setSaveStatus("Configure sheetsId in CONFIG", "info");
+        return;
+    }
+    if (!AppState.googleToken) {
+        setSaveStatus("Войдите, чтобы загрузить", "info");
+        return;
+    }
     setSaveStatus("Loading...");
 
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.sheetsId}/values/Sheet1`;
 
     try {
         let token = AppState.googleToken;
-        let res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+        let res = await fetch(url, {headers: {Authorization: "Bearer " + token}});
         if (res.status === 401) {
-            try { token = await getAccessToken(); }
-            catch {
+            try {
+                token = await getAccessToken();
+            } catch {
                 setSaveStatus("Нужен доступ Google — войдите заново", "error");
                 return;
             }
-            res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+            res = await fetch(url, {headers: {Authorization: "Bearer " + token}});
         }
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const rows = rowsFromData(data);
-        const { objects, groups } = parseLines(rows);
+        const {objects, groups} = parseLines(rows);
 
         if (objects.length > 0) {
             renderOnCanvas(AppState.canvas, objects, groups);
@@ -393,8 +438,14 @@ async function pullFromSheets() {
 }
 
 async function pushToSheets() {
-    if (!AppState.googleToken) { setSaveStatus("Not signed in", "error"); return; }
-    if (!CONFIG.sheetsId) { setSaveStatus("Configure sheetsId in CONFIG", "info"); return; }
+    if (!AppState.googleToken) {
+        setSaveStatus("Not signed in", "error");
+        return;
+    }
+    if (!CONFIG.sheetsId) {
+        setSaveStatus("Configure sheetsId in CONFIG", "info");
+        return;
+    }
 
     const lines = encodeCanvas(getCanvas());
     if (lines.length > CONFIG.maxSheetRows) {
@@ -411,7 +462,7 @@ async function pushToSheets() {
 
         const doClear = () => fetch(clearUrl, {
             method: "POST",
-            headers: { Authorization: "Bearer " + token },
+            headers: {Authorization: "Bearer " + token},
         });
         const doPut = () => fetch(putUrl, {
             method: "PUT",
@@ -419,22 +470,35 @@ async function pushToSheets() {
                 Authorization: "Bearer " + token,
                 "Content-Type": "application/json",
             },
-            body: JSON.stringify({ values: lines.map((l) => [l]) }),
+            body: JSON.stringify({values: lines.map((l) => [l])}),
         });
 
-        // Clear хвоста листа, чтобы старые строки не оставались
+        // Clear хвоста — критичная операция: без неё старые строки
+        // перемешаются с новыми и Pull получит "призраков".
         let res = await doClear();
         if (res.status === 401) {
-            try { token = await getAccessToken(); }
-            catch { setSaveStatus("Нужен доступ Google — нажмите Push ещё раз", "error"); return; }
+            try {
+                token = await getAccessToken();
+            } catch {
+                setSaveStatus("Нужен доступ Google — нажмите Push ещё раз", "error");
+                return;
+            }
             res = await doClear();
         }
-        // Игнорируем не-401 ошибки clear — не критично
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            setSaveStatus("Push error (clear): " + ((err.error && err.error.message) || res.status), "error");
+            return;
+        }
 
         res = await doPut();
         if (res.status === 401) {
-            try { token = await getAccessToken(); }
-            catch { setSaveStatus("Нужен доступ Google — нажмите Push ещё раз", "error"); return; }
+            try {
+                token = await getAccessToken();
+            } catch {
+                setSaveStatus("Нужен доступ Google — нажмите Push ещё раз", "error");
+                return;
+            }
             res = await doPut();
         }
         if (!res.ok) {
@@ -468,9 +532,18 @@ function bindToolbar() {
         if (el) el.addEventListener("click", fn);
     };
 
-    bind("btn-zoom-in", () => { zoomIn(); updateZoomUI(); });
-    bind("btn-zoom-out", () => { zoomOut(); updateZoomUI(); });
-    bind("btn-zoom-reset", () => { resetZoom(); updateZoomUI(); });
+    bind("btn-zoom-in", () => {
+        zoomIn();
+        updateZoomUI();
+    });
+    bind("btn-zoom-out", () => {
+        zoomOut();
+        updateZoomUI();
+    });
+    bind("btn-zoom-reset", () => {
+        resetZoom();
+        updateZoomUI();
+    });
 
     const gridBtn = document.getElementById("btn-grid");
     if (gridBtn) {
@@ -489,17 +562,50 @@ function bindToolbar() {
 
 function bindHotkeys() {
     Hotkeys.bind({
-        'v': () => { setCurrentTool("select"); activateTool("select"); },
-        'r': () => { setCurrentTool("rectangle"); activateTool("rectangle"); },
-        'd': () => { setCurrentTool("diamond"); activateTool("diamond"); },
-        'o': () => { setCurrentTool("circle"); activateTool("circle"); },
-        'l': () => { setCurrentTool("line"); activateTool("line"); },
-        'a': () => { setCurrentTool("arrow"); activateTool("arrow"); },
-        't': () => { addText(); activateTool("text"); },
-        'p': () => { setCurrentTool("pencil"); activateTool("pencil"); },
-        'e': () => { setCurrentTool("eraser"); activateTool("eraser"); },
-        'h': () => { setCurrentTool("hand"); activateTool("hand"); },
-        '?': () => { const d = document.getElementById('hotkeyHelp'); if (d) d.showModal(); },
+        'v': () => {
+            setCurrentTool("select");
+            activateTool("select");
+        },
+        'r': () => {
+            setCurrentTool("rectangle");
+            activateTool("rectangle");
+        },
+        'd': () => {
+            setCurrentTool("diamond");
+            activateTool("diamond");
+        },
+        'o': () => {
+            setCurrentTool("circle");
+            activateTool("circle");
+        },
+        'l': () => {
+            setCurrentTool("line");
+            activateTool("line");
+        },
+        'a': () => {
+            setCurrentTool("arrow");
+            activateTool("arrow");
+        },
+        't': () => {
+            addText();
+            activateTool("text");
+        },
+        'p': () => {
+            setCurrentTool("pencil");
+            activateTool("pencil");
+        },
+        'e': () => {
+            setCurrentTool("eraser");
+            activateTool("eraser");
+        },
+        'h': () => {
+            setCurrentTool("hand");
+            activateTool("hand");
+        },
+        '?': () => {
+            const d = document.getElementById('hotkeyHelp');
+            if (d) d.showModal();
+        },
         'delete': () => deleteSelected(),
         'backspace': () => deleteSelected(),
         'escape': () => {
@@ -508,7 +614,7 @@ function bindHotkeys() {
                 AppState.canvas.requestRenderAll();
             }
         },
-    }, { ignoreInInput: true });
+    }, {ignoreInInput: true});
 
     document.addEventListener("keydown", (e) => {
         if (!AppState.canvas) return;
@@ -519,11 +625,22 @@ function bindHotkeys() {
 
         const ctrl = e.ctrlKey || e.metaKey;
 
-        if (ctrl && e.code === "KeyS") { e.preventDefault(); pushToSheets(); }
-        else if (ctrl && e.code === "KeyZ") { e.preventDefault(); AppState.history.undo(); }
-        else if (ctrl && e.code === "KeyY") { e.preventDefault(); AppState.history.redo(); }
-        else if (ctrl && e.shiftKey && e.code === "KeyG") { e.preventDefault(); ungroupSelected(); }
-        else if (ctrl && e.code === "KeyG") { e.preventDefault(); groupSelected(); }
+        if (ctrl && e.code === "KeyS") {
+            e.preventDefault();
+            pushToSheets();
+        } else if (ctrl && e.code === "KeyZ") {
+            e.preventDefault();
+            AppState.history.undo();
+        } else if (ctrl && e.code === "KeyY") {
+            e.preventDefault();
+            AppState.history.redo();
+        } else if (ctrl && e.shiftKey && e.code === "KeyG") {
+            e.preventDefault();
+            ungroupSelected();
+        } else if (ctrl && e.code === "KeyG") {
+            e.preventDefault();
+            groupSelected();
+        }
     });
 }
 
@@ -559,13 +676,13 @@ function setSaveStatus(text, cls) {
 }
 
 function exportPNG() {
-    const dataURL = getCanvas().toDataURL({ format: "png", multiplier: 2 });
+    const dataURL = getCanvas().toDataURL({format: "png", multiplier: 2});
     download(dataURL, "schema.png");
 }
 
 function exportSVG() {
     const svg = getCanvas().toSVG();
-    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const blob = new Blob([svg], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     download(url, "schema.svg");
     setTimeout(() => URL.revokeObjectURL(url), 1000);
