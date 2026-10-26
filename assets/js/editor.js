@@ -9,6 +9,7 @@ let drawStart = null;
 let panState = null;
 let prevToolBeforeSpace = null;
 let viewOnly = false;
+let exportMode = false;
 
 function getThemeColors() {
     const style = getComputedStyle(document.body);
@@ -31,19 +32,23 @@ function getThemeColors() {
  */
 function flattenScale(obj) {
     if (!obj) return;
-    const sx = obj.scaleX || 1;
-    const sy = obj.scaleY || 1;
-    if (sx === 1 && sy === 1 && !obj.angle) return;
+    const sx = Number(obj.scaleX) || 1;
+    const sy = Number(obj.scaleY) || 1;
+    if (sx === 1 && sy === 1) return;
 
     switch (obj.type) {
         case "i-text":
-        case "text":
+        case "text": {
+            // SheetLang умеет только fontSize, поэтому неоднородный масштаб
+            // превращаем в равномерный (создавать его не даёт lockUniScaling).
+            const factor = Math.max(Math.abs(sx), Math.abs(sy));
             obj.set({
-                fontSize: Math.max(1, (obj.fontSize || 20) * sy),
+                fontSize: Math.max(1, (obj.fontSize || 20) * factor),
                 scaleX: 1,
                 scaleY: 1,
             });
             break;
+        }
 
         case "ellipse":
             obj.set({
@@ -82,7 +87,10 @@ function flattenScale(obj) {
                 width: Math.abs(B.x - A.x),
                 height: Math.abs(B.y - A.y),
             });
-            obj.points = [A.x, A.y, B.x, B.y];
+            obj.setPositionByOrigin(
+                new fabric.Point((A.x + B.x) / 2, (A.y + B.y) / 2),
+                "center", "center"
+            );
             obj.dirty = true;
             break;
         }
@@ -94,9 +102,9 @@ function flattenScale(obj) {
                 const w = Math.max(1, (obj.width || 60) * sx);
                 const h = Math.max(1, (obj.height || 60) * sy);
                 const center = obj.getCenterPoint();
+                const angle = obj.angle || 0;
 
-                obj.set({ scaleX: 1, scaleY: 1, angle: 0 });
-
+                obj.set({scaleX: 1, scaleY: 1, angle: 0});
                 obj.path = [
                     ["M", w / 2, 0],
                     ["L", w, h / 2],
@@ -107,8 +115,10 @@ function flattenScale(obj) {
                 obj.pathOffset = new fabric.Point(w / 2, h / 2);
                 obj.width = w;
                 obj.height = h;
-                obj.left = center.x - w / 2;
-                obj.top = center.y - h / 2;
+                obj.setPositionByOrigin(center, "center", "center");
+                // Поворот теперь сохраняется в SheetLang — не теряем его
+                // при перемещении/масштабировании ромба.
+                if (angle) obj.rotate(angle);
                 obj.dirty = true;
             }
             break;
@@ -120,15 +130,20 @@ function flattenScale(obj) {
 
 function normalizeColor(color) {
     if (!color) return "";
-    if (color.startsWith("#")) return color.toLowerCase();
-    const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    const c = String(color).trim().toLowerCase();
+    if (/^#[0-9a-f]{3}$/.test(c)) {
+        return "#" + c[1] + c[1] + c[2] + c[2] + c[3] + c[3];
+    }
+    if (/^#[0-9a-f]{8}$/.test(c)) return c.slice(0, 7);
+    if (/^#[0-9a-f]{6}$/.test(c)) return c;
+    const match = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
     if (match) {
         const r = parseInt(match[1], 10).toString(16).padStart(2, "0");
         const g = parseInt(match[2], 10).toString(16).padStart(2, "0");
         const b = parseInt(match[3], 10).toString(16).padStart(2, "0");
         return "#" + r + g + b;
     }
-    return color.toLowerCase();
+    return c;
 }
 
 export function getCanvasBgColor() {
@@ -160,7 +175,7 @@ export function initEditor() {
 
 export function getCanvas() { return canvas; }
 
-export function setCurrentTool(tool) {
+export function setCurrentTool(tool, options = {}) {
     currentTool = tool;
     if (!canvas) return;
     canvas.selection = !viewOnly && tool === "select";
@@ -170,7 +185,7 @@ export function setCurrentTool(tool) {
         tool === "hand" ? "grab" :
             tool === "select" ? "default" :
                 "crosshair";
-    if (!viewOnly) canvas.discardActiveObject();
+    if (!viewOnly && !options.keepSelection) canvas.discardActiveObject();
     canvas.renderAll();
 }
 
@@ -180,14 +195,21 @@ export function setViewOnlyMode(on) {
         canvas.selection = !viewOnly && currentTool === "select";
         canvas.skipTargetFind = viewOnly || (currentTool !== "select" && currentTool !== "eraser");
         if (viewOnly) {
-            // В view-only: глушим рисование и снимаем выделение/редактирование.
-            canvas.isDrawingMode = false;
-            canvas.discardActiveObject();
+            // В view-only: сначала выходим из редактирования текста,
+            // потом снимаем выделение (после discard объект уже null).
             const active = canvas.getActiveObject();
             if (active && active.isEditing) active.exitEditing();
+            canvas.isDrawingMode = false;
+            canvas.discardActiveObject();
         }
         canvas.requestRenderAll();
     }
+}
+
+/** Экспорт без сетки (фон остаётся темой). */
+export function setExportMode(on) {
+    exportMode = !!on;
+    if (canvas) canvas.requestRenderAll();
 }
 
 export function getCurrentTool() { return currentTool; }
@@ -218,7 +240,7 @@ function installGridBackground() {
         ctx.fillStyle = bg;
         ctx.fillRect(0, 0, w, h);
         ctx.restore();
-        if (!gridEnabled) return;
+        if (!gridEnabled || exportMode) return;
 
         const gridStroke = getComputedStyle(document.body).getPropertyValue("--grid-stroke").trim() || "#26264a";
         const vpt = this.viewportTransform || [1, 0, 0, 1, 0, 0];
@@ -268,30 +290,44 @@ function bindCanvasEvents() {
         markDirty();
         saveUndo();
     });
-    canvas.on("object:removed", () => { markDirty(); saveUndo(); });
+    canvas.on("object:removed", markDirty);
     canvas.on("path:created", () => { markDirty(); saveUndo(); });
+}
+
+function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" ||
+        tag === "BUTTON" || tag === "A" || el.isContentEditable;
+}
+
+function releaseSpacePan() {
+    if (!prevToolBeforeSpace) return;
+    const tool = prevToolBeforeSpace;
+    prevToolBeforeSpace = null;
+    setCurrentTool(tool, {keepSelection: true});
 }
 
 function bindSpacePan() {
     document.addEventListener("keydown", (e) => {
         if (e.code !== "Space") return;
-        const tag = document.activeElement && document.activeElement.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (document.querySelector("dialog[open]")) return;
+        if (isTypingTarget(document.activeElement)) return;
         if (!canvas) return;
         const active = canvas.getActiveObject();
         if (active && active.isEditing) return;
         e.preventDefault();
         if (prevToolBeforeSpace) return;
         prevToolBeforeSpace = currentTool;
-        setCurrentTool("hand");
+        // Панорамирование не должно снимать выделение.
+        setCurrentTool("hand", {keepSelection: true});
     });
     document.addEventListener("keyup", (e) => {
         if (e.code !== "Space") return;
-        if (!prevToolBeforeSpace) return;
-        const tool = prevToolBeforeSpace;
-        prevToolBeforeSpace = null;
-        setCurrentTool(tool);
+        releaseSpacePan();
     });
+    // Если фокус ушёл из окна, keyup может не прийти.
+    window.addEventListener("blur", releaseSpacePan);
 }
 
 function bindTouchGestures() {
@@ -420,6 +456,9 @@ function onMouseDown(opt) {
         return;
     }
 
+    // Рисуем/стираем только левой кнопкой (правый клик не должен
+    // создавать фигуры и удалять объекты). У touch-событий button нет.
+    if (typeof e.button === "number" && e.button !== 0) return;
     if (viewOnly) return;
 
     const pointer = canvas.getPointer(opt.e);
@@ -430,6 +469,8 @@ function onMouseDown(opt) {
         const target = canvas.findTarget(opt.e, true);
         if (target) {
             canvas.remove(target);
+            markDirty();
+            saveUndo();
             canvas.requestRenderAll();
         }
         return;
@@ -484,6 +525,10 @@ function onMouseMove(opt) {
                 }
             );
             line.set({ excludeFromExport: true });
+            line.setPositionByOrigin(
+                new fabric.Point((isDrawingLine.startX + x) / 2, (isDrawingLine.startY + y) / 2),
+                "center", "center"
+            );
             isDrawingLine.shape = line;
             canvas.add(line);
         } else {
@@ -493,6 +538,10 @@ function onMouseMove(opt) {
             if (typeof isDrawingLine.shape._setWidthHeight === "function") {
                 isDrawingLine.shape._setWidthHeight();
             }
+            isDrawingLine.shape.setPositionByOrigin(
+                new fabric.Point((isDrawingLine.startX + x) / 2, (isDrawingLine.startY + y) / 2),
+                "center", "center"
+            );
             canvas.requestRenderAll();
         }
     }
@@ -523,30 +572,40 @@ function onMouseUp(opt) {
 
     if (isDrawingLine && isDrawingLine.shape) {
         const shape = isDrawingLine.shape;
+        const isTiny = Math.abs(shape.x2 - shape.x1) < 1 && Math.abs(shape.y2 - shape.y1) < 1;
         shape.set({ excludeFromExport: false, selectable: true, evented: true });
-        if (isDrawingLine.tool === "arrow") {
+        if (isTiny) {
             canvas.remove(shape);
-            const arrow = createArrow(shape.x1, shape.y1, shape.x2, shape.y2);
-            canvas.add(arrow);
+        } else if (isDrawingLine.tool === "arrow") {
+            canvas.remove(shape);
+            canvas.add(createArrow(shape.x1, shape.y1, shape.x2, shape.y2));
         }
         isDrawingLine = null;
-        markDirty();
-        saveUndo();
+        if (!isTiny) {
+            markDirty();
+            saveUndo();
+        }
         canvas.requestRenderAll();
         return;
     }
     isDrawingLine = null;
 
+    let shapeKept = false;
     if (drawStart && drawStart.shape) {
         const shape = drawStart.shape;
         if (shape.width <= GRID_SIZE / 2 && shape.height <= GRID_SIZE / 2) {
             canvas.remove(shape);
+        } else {
+            shapeKept = true;
         }
-        markDirty();
-        saveUndo();
-        canvas.requestRenderAll();
     }
     drawStart = null;
+
+    if (shapeKept) {
+        markDirty();
+        saveUndo();
+    }
+    canvas.requestRenderAll();
 }
 
 function onDoubleClick(opt) {
@@ -561,13 +620,15 @@ function onDoubleClick(opt) {
 
 function onMouseWheel(opt) {
     const e = opt.e;
-    if (e.ctrlKey) return;
 
+    // Ctrl+wheel — это pinch-zoom тачпада. Раньше здесь был return без
+    // preventDefault, и масштабировалась вся страница вместо холста.
     let zoom = canvas.getZoom() * (0.999 ** e.deltaY);
-    if (zoom > 10) zoom = 10;
-    if (zoom < 0.1) zoom = 0.1;
+    zoom = Math.max(0.1, Math.min(10, zoom));
 
-    canvas.zoomToPoint(new fabric.Point(e.offsetX, e.offsetY), zoom);
+    const px = Number.isFinite(e.offsetX) ? e.offsetX : canvas.getWidth() / 2;
+    const py = Number.isFinite(e.offsetY) ? e.offsetY : canvas.getHeight() / 2;
+    canvas.zoomToPoint(new fabric.Point(px, py), zoom);
     canvas.requestRenderAll();
 
     e.preventDefault();
@@ -670,11 +731,17 @@ function createArrow(x1, y1, x2, y2) {
     const headAngle = Math.PI / 6;
     const hx = x2 - headLength * Math.cos(angle - headAngle);
     const hy = y2 - headLength * Math.sin(angle - headAngle);
+    const lineEndX = x2 - headLength * Math.cos(angle);
+    const lineEndY = y2 - headLength * Math.sin(angle);
     const line = new fabric.Line(
-        [x1, y1,
-            x2 - headLength * Math.cos(angle),
-            y2 - headLength * Math.sin(angle)],
+        [x1, y1, lineEndX, lineEndY],
         { stroke: theme.stroke, strokeWidth: 2, fill: "", selectable: true }
+    );
+    // Fabric учитывает strokeWidth в центре линии: без этого линия
+    // рисуется со сдвигом strokeWidth/2 и «уползает» при каждом сохранении.
+    line.setPositionByOrigin(
+        new fabric.Point((x1 + lineEndX) / 2, (y1 + lineEndY) / 2),
+        "center", "center"
     );
     const head = new fabric.Path(
         `M ${x2} ${y2} L ${hx} ${hy} ` +
@@ -682,20 +749,35 @@ function createArrow(x1, y1, x2, y2) {
         `${y2 - headLength * Math.sin(angle + headAngle)} Z`,
         { fill: theme.stroke, stroke: "none", selectable: true }
     );
-    return new fabric.Group([line, head], { selectable: true });
+    // Признак наконечника: по нему encodeCanvas отличает стрелку
+    // от пользовательской группы «линия + path».
+    head.set({shapeType: "arrowHead"});
+    return new fabric.Group([line, head], {selectable: true});
 }
 
 export function addText(text) {
     const theme = getThemeColors();
+    // Новый текст — в центре текущего вида, а не всегда в (100,100).
+    const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+    const zoom = vpt[0] || 1;
+    const cx = (canvas.getWidth() / 2 - vpt[4]) / zoom;
+    const cy = (canvas.getHeight() / 2 - vpt[5]) / zoom;
     const t = new fabric.IText(text || "Текст", {
-        left: 100,
-        top: 100,
+        left: Math.round(cx - 60),
+        top: Math.round(cy - 10),
         fontSize: 20,
         fill: theme.text,
+        // SheetLang хранит только fontSize — не даём растянуть текст
+        // по одной оси (иначе размер молча терялся при Push).
+        lockUniScaling: true,
     });
     canvas.add(t);
     canvas.setActiveObject(t);
     canvas.requestRenderAll();
+    if (typeof t.enterEditing === "function") {
+        t.enterEditing();
+        t.selectAll();
+    }
     markDirty();
     saveUndo();
     return t;
@@ -714,9 +796,19 @@ export function groupSelected() {
     }
 }
 
+function isArrowGroup(obj) {
+    if (!obj || obj.type !== "group") return false;
+    const kids = obj.getObjects ? obj.getObjects() : (obj._objects || []);
+    if (kids.length !== 2) return false;
+    return kids.some((o) => o.type === "line") &&
+        kids.some((o) => o.type === "path" && o.shapeType === "arrowHead");
+}
+
 export function ungroupSelected() {
     const active = canvas.getActiveObject();
     if (!active || active.type !== "group") return;
+    // Стрелка — это группа line+path; разгруппировка потеряла бы наконечник.
+    if (isArrowGroup(active)) return;
     active.toActiveSelection();
     canvas.requestRenderAll();
     markDirty();
@@ -739,9 +831,10 @@ export function deleteSelected() {
 
 export function setZoom(factor) {
     if (!canvas) return;
-    if (factor < 0.1 || factor > 10) return;
+    const value = Number(factor);
+    const zoom = Math.max(0.1, Math.min(10, Number.isFinite(value) ? value : 1));
     const center = new fabric.Point(canvas.getWidth() / 2, canvas.getHeight() / 2);
-    canvas.zoomToPoint(center, factor);
+    canvas.zoomToPoint(center, zoom);
     canvas.requestRenderAll();
     updateZoomUI();
 }

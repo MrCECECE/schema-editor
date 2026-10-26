@@ -3,6 +3,8 @@ const Hotkeys = {
     const ignoreInInput = opts.ignoreInInput !== false;
 
     document.addEventListener('keydown', (e) => {
+      // Не перехватываем клавиши, пока открыта модалка/справка.
+      if (document.querySelector('dialog[open]')) return;
       if (ignoreInInput) {
         const t = e.target;
         if (t && (

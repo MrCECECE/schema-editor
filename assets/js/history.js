@@ -53,12 +53,23 @@ class History {
                 return;
             }
             this._suspend = true;
+            let settled = false;
+            let timer = null;
             const done = () => {
+                if (settled) return;
+                settled = true;
+                if (timer) clearTimeout(timer);
                 // Явный сброс в любом случае, даже если что-то пойдёт не так.
                 this._suspend = false;
                 document.dispatchEvent(new CustomEvent("canvas:refresh-selection"));
                 resolve();
             };
+            // Если Fabric по какой-то причине не вызовет callback,
+            // не оставляем _suspend=true и висящий промис навсегда.
+            timer = setTimeout(() => {
+                console.error("history: loadFromJSON timeout");
+                done();
+            }, 10000);
             try {
                 this.canvas.loadFromJSON(state, () => {
                     try {

@@ -154,6 +154,17 @@ button, input, select, textarea { font-family: inherit; color: inherit; font-siz
 }
 .btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
 .btn:active { transform: scale(0.97); }
+.btn[disabled] { opacity: 0.55; pointer-events: none; cursor: default; }
+
+/* Точка «есть несохранённые изменения» на кнопке Push */
+#btn-push.dirty::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-glow);
+}
 
 .btn-ghost {
     background: transparent;
@@ -603,7 +614,7 @@ canvas:active { cursor: grabbing; }
     background: var(--border-strong);
     border-radius: 3px;
     margin: var(--space-sm) auto var(--space-md);
-    cursor: grab;
+    cursor: pointer;
 }
 
 /* ===== Status bar ===== */
@@ -623,6 +634,18 @@ canvas:active { cursor: grabbing; }
     white-space: nowrap;
 }
 .statusbar > span { flex-shrink: 0; }
+#status-msg {
+    display: none;
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 50vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+@media (max-width: 700px) {
+    /* Верхний save-status на телефоне скрыт — показываем статус здесь. */
+    #status-msg { display: inline-block; }
+}
 
 /* ===== Floating controls ===== */
 .floating-controls {

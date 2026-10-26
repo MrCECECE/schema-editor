@@ -5,13 +5,14 @@ import { fileURLToPath } from "url";
 // В ESM-модулях __dirname не существует — вычисляем его вручную.
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
+// Base path.
+//   - На GitHub Actions задан GITHUB_REPOSITORY: сайт живёт в /<repo>/.
+//   - Локально (dev и build) используем "./", чтобы dist открывался
+//     из любой папки и форк не зависел от имени репозитория.
+const repoName = process.env.GITHUB_REPOSITORY?.split("/")[1];
+
 export default defineConfig({
-    // Base path.
-    //   - В dev: "./" (localhost, корень сервера).
-    //   - В build: "/schema-editor/" (GitHub Pages, репозиторий в подпапке).
-    // Иначе классические скрипты из public/ резолвятся в /assets/js/... и дают 404
-    // на Pages, потому что сайт лежит в /schema-editor/.
-    base: process.env.NODE_ENV === "production" ? "/schema-editor/" : "./",
+    base: repoName ? `/${repoName}/` : "./",
 
     build: {
         outDir: "dist",

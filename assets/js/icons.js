@@ -1,7 +1,7 @@
 export const ICONS = {
     select: `<svg viewBox="0 0 24 24"><path d="M4 2 L4 15 L8 12.5 L11 19 L13 18 L10 11.5 L14.5 10.5 Z"/></svg>`,
     rectangle: `<svg viewBox="0 0 24 24"><rect x="5" y="6" width="14" height="12" rx="1"/></svg>`,
-    diamond: `<svg viewBox="0 0 24 24"><rect x="12" y="5" width="16" height="16" transform="rotate(45 12 12)"/></svg>`,
+    diamond: `<svg viewBox="0 0 24 24"><path d="M12 3 L21 12 L12 21 L3 12 Z"/></svg>`,
     circle: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></svg>`,
     line: `<svg viewBox="0 0 24 24"><line x1="4" y1="18" x2="20" y2="6" stroke="currentColor" stroke-width="2"/></svg>`,
     arrow: `<svg viewBox="0 0 24 24"><path d="M4 12 L18 12 M18 12 L13 7 M18 12 L13 17" stroke="currentColor" stroke-width="2" fill="none"/></svg>`,

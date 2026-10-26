@@ -47,8 +47,8 @@
 <div class="screen">
     <header class="topbar">
         <div class="topbar-left">
-            <button id="drawer-toggle" class="btn-icon" title="Меню">
-                <span class="dots">⋮</span>
+            <button id="drawer-toggle" class="btn-icon" title="Меню" aria-label="Меню инструментов">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
             </button>
             <a href="index.html" class="btn-icon" title="На главную">←</a>
             <span class="file-name">Schema Studio</span>
@@ -138,27 +138,27 @@
             <div id="props-no-selection" class="props-hint">Выберите объект на холсте</div>
             <div id="props-selection" class="props-fields hidden">
                 <div class="prop-group">
-                    <label class="props-label">Заливка</label>
+                    <label class="props-label" for="prop-fill">Заливка</label>
                     <input type="color" id="prop-fill" value="#4a90d9">
                 </div>
                 <div class="prop-group">
-                    <label class="props-label">Обводка</label>
+                    <label class="props-label" for="prop-stroke">Обводка</label>
                     <input type="color" id="prop-stroke" value="#ffffff">
                 </div>
                 <div class="prop-group">
-                    <label class="props-label">Толщина обводки</label>
+                    <label class="props-label" for="prop-stroke-width">Толщина обводки</label>
                     <input type="range" id="prop-stroke-width" min="0" max="20" value="2">
                 </div>
                 <div class="prop-group">
-                    <label class="props-label">Размер шрифта</label>
+                    <label class="props-label" for="prop-font-size">Размер шрифта</label>
                     <input type="number" id="prop-font-size" min="8" max="200" value="20">
                 </div>
                 <div class="prop-group">
-                    <label class="props-label">Прозрачность</label>
+                    <label class="props-label" for="prop-opacity">Прозрачность</label>
                     <input type="range" id="prop-opacity" min="0" max="1" step="0.05" value="1">
                 </div>
                 <div class="prop-group">
-                    <label class="props-label">Поворот (°)</label>
+                    <label class="props-label" for="prop-angle">Поворот (°)</label>
                     <input type="number" id="prop-angle" min="-360" max="360" value="0">
                 </div>
                 <label class="prop-checkbox-label">
@@ -173,6 +173,7 @@
         <span id="status-zoom">100%</span>
         <span id="status-coords">x: 0, y: 0</span>
         <span id="status-mode">Редактор</span>
+        <span id="status-msg" role="status" aria-live="polite"></span>
         <span id="status-user"></span>
     </footer>
 </div>

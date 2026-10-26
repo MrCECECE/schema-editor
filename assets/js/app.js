@@ -1,8 +1,10 @@
 import {
     initEditor, getCanvas, toggleGrid, updateObjectsForTheme,
-    getCanvasBgColor, updateZoomUI, setViewOnlyMode,
+    getCanvasBgColor, updateZoomUI, setViewOnlyMode, setExportMode,
+    zoomIn, zoomOut, resetZoom,
 } from "./editor.js";
 import {parseLines, renderOnCanvas} from "./sheetlang.js";
+import {installFabricFixes} from "./fabric-fixes.js";
 import {ICONS} from "./icons.js";
 
 const CONFIG = {
@@ -15,37 +17,10 @@ const AppState = {
     canvas: null,
     lastUpdate: null,
     refreshTimer: null,
+    refreshInFlight: false,
+    autoZoom: null,
+    statusKind: "info",
 };
-
-function installFabricFixes() {
-    // Fabric.js 5.3.0: "alphabetical" — не валидный CanvasTextBaseline
-    if (fabric.Text && fabric.Text.prototype._setTextStyles) {
-        fabric.Text.prototype._setTextStyles = function (ctx, charStyle, forMeasuring) {
-            ctx.textBaseline = "alphabetic";
-            if (this.path) {
-                switch (this.pathAlign) {
-                    case "center":
-                        ctx.textBaseline = "middle";
-                        break;
-                    case "ascender":
-                        ctx.textBaseline = "top";
-                        break;
-                    case "descender":
-                        ctx.textBaseline = "bottom";
-                        break;
-                }
-            }
-            ctx.font = this._getFontDeclaration(charStyle, forMeasuring);
-        };
-    }
-    // Регистрируем shapeType в stateProperties, чтобы canvas.toJSON()
-    // (используется, например, для экспорта/снапшотов) не терял ромб.
-    if (fabric.Path && fabric.Path.prototype.stateProperties &&
-        fabric.Path.prototype.stateProperties.indexOf("shapeType") === -1) {
-        fabric.Path.prototype.stateProperties =
-            fabric.Path.prototype.stateProperties.concat(["shapeType"]);
-    }
-}
 
 function paintIcons() {
     document.querySelectorAll(".tool-btn[data-tool]").forEach((btn) => {
@@ -77,7 +52,6 @@ function onThemeToggle() {
     updateThemeIcon();
     if (AppState.canvas) {
         updateObjectsForTheme();
-        AppState.canvas.setBackgroundColor(getCanvasBgColor());
         AppState.canvas.requestRenderAll();
     }
 }
@@ -98,7 +72,7 @@ function init() {
         bindToolbar();
         bindStatus();
         bindHotkeys();
-        setTimeout(fitCanvas, 50);
+        setTimeout(() => fitCanvas(true), 50);
 
         const themeBtn = document.getElementById("btn-theme-toggle");
         if (themeBtn) themeBtn.addEventListener("click", onThemeToggle);
@@ -135,25 +109,35 @@ function showFatalError(msg) {
     container.appendChild(div);
 }
 
-function fitCanvas() {
+function fitCanvas(force) {
     if (!AppState.canvas) return;
     const container = document.getElementById("canvas-container");
     if (!container || !container.parentElement) return;
     const maxW = container.parentElement.clientWidth - 40;
     const maxH = container.parentElement.clientHeight - 40;
-    if (maxW > 0 && maxH > 0) {
-        const zoom = Math.min(maxW / 1000, maxH / 700, 1);
-        AppState.canvas.setZoom(zoom);
-        AppState.canvas.requestRenderAll();
-        updateZoomUI();
+    if (maxW <= 0 || maxH <= 0) return;
+
+    // Не сбрасываем зум, выставленный пользователем.
+    if (!force && AppState.autoZoom != null &&
+        Math.abs(AppState.canvas.getZoom() - AppState.autoZoom) > 0.001) {
+        return;
     }
+
+    const zoom = Math.min(maxW / 1000, maxH / 700, 1);
+    AppState.canvas.setZoom(zoom);
+    AppState.canvas.requestRenderAll();
+    AppState.autoZoom = zoom;
+    updateZoomUI();
 }
 
 async function refresh() {
+    if (AppState.refreshInFlight) return;
     if (!CONFIG.sheetsId) {
         setStatus("Configure sheetsId in CONFIG", "info");
         return;
     }
+
+    AppState.refreshInFlight = true;
     setStatus("Loading...");
     try {
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.sheetsId}/values/Sheet1?key=${CONFIG.apiKey}`;
@@ -161,23 +145,37 @@ async function refresh() {
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const rows = rowsFromData(data);
-        const {objects, groups} = parseLines(rows);
+        const {objects, groups, errors = []} = parseLines(rows);
 
-        if (objects.length > 0) {
-            renderOnCanvas(AppState.canvas, objects, groups);
-            updateObjectsForTheme();
-            setViewOnly();
-            AppState.lastUpdate = new Date();
-            const ago = formatTimeAgo(AppState.lastUpdate);
-            setStatus("Updated • " + ago, "ok");
-            const updateEl = document.getElementById("status-update");
-            if (updateEl) updateEl.textContent = "Updated: " + ago;
-        } else {
-            setStatus("Sheet empty", "info");
+        // Перерисовываем всегда: если лист опустел, холст тоже должен
+        // очиститься, а не показывать старую схему.
+        renderOnCanvas(AppState.canvas, objects, groups);
+        updateObjectsForTheme();
+        setViewOnly();
+        AppState.lastUpdate = new Date();
+
+        if (errors.length) {
+            console.warn("SheetLang: пропущены строки", errors);
         }
+        if (objects.length > 0) {
+            setStatus(
+                errors.length
+                    ? `Updated • ${formatTimeAgo(AppState.lastUpdate)} (ошибок: ${errors.length})`
+                    : "Updated • " + formatTimeAgo(AppState.lastUpdate),
+                errors.length ? "info" : "ok"
+            );
+        } else {
+            setStatus(
+                errors.length ? `Sheet empty (ошибок: ${errors.length})` : "Sheet empty",
+                "info"
+            );
+        }
+        updateStatusAge();
     } catch (e) {
         console.error("Refresh failed:", e);
-        setStatus("Load error", "error");
+        setStatus("Load error: " + (e.message || e), "error");
+    } finally {
+        AppState.refreshInFlight = false;
     }
 }
 
@@ -206,21 +204,10 @@ function bindToolbar() {
         const el = document.getElementById(id);
         if (el) el.addEventListener("click", fn);
     };
-    bind("btn-zoom-in", () => {
-        canvas.setZoom(canvas.getZoom() + 0.1);
-        canvas.requestRenderAll();
-        updateZoomUI();
-    });
-    bind("btn-zoom-out", () => {
-        canvas.setZoom(canvas.getZoom() - 0.1);
-        canvas.requestRenderAll();
-        updateZoomUI();
-    });
-    bind("btn-zoom-reset", () => {
-        canvas.setZoom(1);
-        canvas.requestRenderAll();
-        updateZoomUI();
-    });
+    // Ограничения 0.1..10 живут в editor.js:setZoom.
+    bind("btn-zoom-in", () => zoomIn());
+    bind("btn-zoom-out", () => zoomOut());
+    bind("btn-zoom-reset", () => resetZoom());
 
     const gridBtn = document.getElementById("btn-grid");
     if (gridBtn) {
@@ -236,12 +223,23 @@ function bindToolbar() {
 
 function exportPNG() {
     const canvas = getCanvas();
-    const dataURL = canvas.toDataURL({format: "png", multiplier: 2});
-    download(dataURL, "schema.png");
+    setExportMode(true);
+    try {
+        const dataURL = canvas.toDataURL({format: "png", multiplier: 2});
+        download(dataURL, "schema.png");
+    } finally {
+        setExportMode(false);
+        canvas.requestRenderAll();
+    }
 }
 
 function exportSVG() {
-    const svg = getCanvas().toSVG();
+    const canvas = getCanvas();
+    const bg = getCanvasBgColor();
+    const svg = canvas.toSVG().replace(
+        /(<svg\b[^>]*>)/,
+        `$1<rect x="0" y="0" width="${canvas.getWidth()}" height="${canvas.getHeight()}" fill="${bg}"/>`
+    );
     const blob = new Blob([svg], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     download(url, "schema.svg");
@@ -279,29 +277,40 @@ function setViewOnly() {
     });
 }
 
-function setStatus(text, cls) {
-    const el = document.getElementById("save-status");
-    if (!el) return;
-    el.textContent = text;
-    el.style.color = cls === "error" ? "var(--danger)"
+function statusColor(cls) {
+    return cls === "error" ? "var(--danger)"
         : cls === "ok" ? "var(--success)"
             : "var(--text-dim)";
 }
 
-window.addEventListener("resize", () => {
-    if (AppState.canvas) {
-        const container = document.getElementById("canvas-container");
-        if (container && container.parentElement) {
-            const maxW = container.parentElement.clientWidth - 40;
-            const maxH = container.parentElement.clientHeight - 40;
-            if (maxW > 0 && maxH > 0) {
-                const zoom = Math.min(maxW / 1000, maxH / 700, 1);
-                AppState.canvas.setZoom(zoom);
-                AppState.canvas.requestRenderAll();
-                updateZoomUI();
-            }
-        }
+function setStatus(text, cls) {
+    const color = statusColor(cls);
+    AppState.statusKind = cls || "info";
+    const el = document.getElementById("save-status");
+    if (el) {
+        el.textContent = text;
+        el.style.color = color;
     }
-});
+    // Дублируем в статусбар: на мобильных верхний блок скрыт.
+    const bar = document.getElementById("status-msg");
+    if (bar) {
+        bar.textContent = text;
+        bar.style.color = color;
+    }
+}
+
+function updateStatusAge() {
+    if (!AppState.lastUpdate) return;
+    const ago = formatTimeAgo(AppState.lastUpdate);
+    const el = document.getElementById("status-update");
+    if (el) el.textContent = "Updated: " + ago;
+    const top = document.getElementById("save-status");
+    if (top && top.textContent.startsWith("Updated")) {
+        top.textContent = "Updated • " + ago;
+    }
+}
+
+window.addEventListener("resize", () => fitCanvas());
+setInterval(updateStatusAge, 30000);
 
 init();

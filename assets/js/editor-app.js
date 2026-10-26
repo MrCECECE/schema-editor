@@ -2,17 +2,17 @@ import {
     initEditor, getCanvas, toggleGrid, setCurrentTool,
     zoomIn, zoomOut, resetZoom, updateZoomUI,
     groupSelected, ungroupSelected, deleteSelected, addText,
-    getCanvasBgColor, updateObjectsForTheme, setViewOnlyMode,
+    getCanvasBgColor, updateObjectsForTheme, setViewOnlyMode, setExportMode,
 } from "./editor.js";
 import {createHistory} from "./history.js";
 import {parseLines, renderOnCanvas, encodeCanvas} from "./sheetlang.js";
 import {initToolbarUI} from "./toolbar.js";
+import {installFabricFixes} from "./fabric-fixes.js";
 import {ICONS} from "./icons.js";
 
 const CONFIG = {
     sheetsId: "1e3ut8uuhbwHS0ZpZL-VWvP886mBXwgFUzSRrjkQS15k",
     scopes: "openid email profile https://www.googleapis.com/auth/spreadsheets",
-    refreshInterval: 86400000,
     maxSheetRows: 1000,
 };
 
@@ -24,39 +24,20 @@ const AppState = {
     tokenClient: null,
     tokenQueue: [],
     tokenRequestInFlight: false,
+    tokenTimer: null,
     isMobile: false,
+    dirty: false,
+    pushInFlight: false,
+    pullInFlight: false,
+    autoZoom: null,
+    statusKind: null,
 };
 
 let googleSignInRetries = 0;
 
-function installFabricFixes() {
-    // Fabric.js 5.3.0: "alphabetical" — не валидный CanvasTextBaseline
-    if (fabric.Text && fabric.Text.prototype._setTextStyles) {
-        fabric.Text.prototype._setTextStyles = function (ctx, charStyle, forMeasuring) {
-            ctx.textBaseline = "alphabetic";
-            if (this.path) {
-                switch (this.pathAlign) {
-                    case "center":
-                        ctx.textBaseline = "middle";
-                        break;
-                    case "ascender":
-                        ctx.textBaseline = "top";
-                        break;
-                    case "descender":
-                        ctx.textBaseline = "bottom";
-                        break;
-                }
-            }
-            ctx.font = this._getFontDeclaration(charStyle, forMeasuring);
-        };
-    }
-    // Регистрируем shapeType в stateProperties, чтобы undo/redo
-    // и canvas.toJSON() не теряли признак "это ромб".
-    if (fabric.Path && fabric.Path.prototype.stateProperties &&
-        fabric.Path.prototype.stateProperties.indexOf("shapeType") === -1) {
-        fabric.Path.prototype.stateProperties =
-            fabric.Path.prototype.stateProperties.concat(["shapeType"]);
-    }
+// Auth — top-level const в classic-скрипте, поэтому window.Auth === undefined.
+function getAuth() {
+    return typeof Auth !== "undefined" ? Auth : null;
 }
 
 function detectMobile() {
@@ -93,7 +74,6 @@ function onThemeToggle() {
     if (icon) icon.textContent = document.documentElement.dataset.theme === "dark" ? "🌙" : "☀️";
     if (AppState.canvas) {
         updateObjectsForTheme();
-        AppState.canvas.setBackgroundColor(getCanvasBgColor());
         AppState.canvas.requestRenderAll();
     }
 }
@@ -115,8 +95,11 @@ function init() {
         if (themeBtn) themeBtn.addEventListener("click", onThemeToggle);
 
         window.addEventListener("resize", onResize);
+        window.addEventListener("beforeunload", onBeforeUnload);
+        document.addEventListener("canvas:dirty", markDirty);
 
-        const session = Auth.getSession();
+        const auth = getAuth();
+        const session = auth ? auth.getSession() : null;
         if (session && session.accessToken && window.APP_CONFIG?.googleClientId) {
             AppState.googleToken = session.accessToken;
             AppState.googleUser = {username: session.email || session.name || "unknown"};
@@ -144,27 +127,53 @@ function showFatalError(msg) {
     container.appendChild(div);
 }
 
+function markDirty() {
+    setDirty(true);
+}
+
+function setDirty(value) {
+    AppState.dirty = !!value;
+    const btn = document.getElementById("btn-push");
+    if (btn) {
+        btn.classList.toggle("dirty", AppState.dirty);
+        btn.title = AppState.dirty ? "Сохранить (Ctrl+S) — есть несохранённые изменения" : "Сохранить (Ctrl+S)";
+    }
+}
+
+function onBeforeUnload(e) {
+    if (!AppState.dirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+}
+
 function onResize() {
     const wasMobile = AppState.isMobile;
     AppState.isMobile = detectMobile();
     if (wasMobile !== AppState.isMobile) {
         rebuildBottomSheet();
     }
-    if (AppState.canvas) fitCanvas();
+    if (AppState.canvas) fitCanvas(wasMobile !== AppState.isMobile);
 }
 
-function fitCanvas() {
+function fitCanvas(force) {
     if (!AppState.canvas) return;
     const container = document.getElementById("canvas-container");
     if (!container || !container.parentElement) return;
     const maxW = container.parentElement.clientWidth - 40;
     const maxH = container.parentElement.clientHeight - 40;
-    if (maxW > 0 && maxH > 0) {
-        const zoom = Math.min(maxW / 1000, maxH / 700, 1);
-        AppState.canvas.setZoom(zoom);
-        AppState.canvas.requestRenderAll();
-        updateZoomUI();
+    if (maxW <= 0 || maxH <= 0) return;
+
+    // Не сбрасываем зум, который пользователь выставил руками.
+    if (!force && AppState.autoZoom != null &&
+        Math.abs(AppState.canvas.getZoom() - AppState.autoZoom) > 0.001) {
+        return;
     }
+
+    const zoom = Math.min(maxW / 1000, maxH / 700, 1);
+    AppState.canvas.setZoom(zoom);
+    AppState.canvas.requestRenderAll();
+    AppState.autoZoom = zoom;
+    updateZoomUI();
 }
 
 function setupDrawer() {
@@ -190,6 +199,11 @@ function setupDrawer() {
 function setupBottomSheet() {
     bindPanelToggle();
     rebuildBottomSheet();
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && bottomSheet && bottomSheet.classList.contains("open")) {
+            bottomSheet.classList.remove("open");
+        }
+    });
 }
 
 function bindPanelToggle() {
@@ -222,6 +236,7 @@ function rebuildBottomSheet() {
 
     const handle = document.createElement("div");
     handle.className = "bottom-sheet-handle";
+    handle.addEventListener("click", () => bottomSheet.classList.remove("open"));
     bottomSheet.appendChild(handle);
 
     panel.querySelectorAll(".props-hint, .props-fields").forEach((el) => {
@@ -276,14 +291,38 @@ function initGoogleSignIn() {
     container.appendChild(btn);
 }
 
+const TOKEN_TIMEOUT_MS = 60000;
+
+function startTokenRequest() {
+    AppState.tokenRequestInFlight = true;
+    clearTimeout(AppState.tokenTimer);
+    // Если popup заблокирован/закрыт, callback может не прийти — не держим
+    // очередь промисов вечно.
+    AppState.tokenTimer = setTimeout(() => {
+        if (!AppState.tokenRequestInFlight) return;
+        AppState.tokenRequestInFlight = false;
+        AppState.tokenTimer = null;
+        while (AppState.tokenQueue.length) {
+            AppState.tokenQueue.shift().reject(new Error("timeout"));
+        }
+        setSaveStatus("Вход не завершён. Попробуйте ещё раз.", "error");
+    }, TOKEN_TIMEOUT_MS);
+    AppState.tokenClient.requestAccessToken();
+}
+
+function finishTokenRequest() {
+    AppState.tokenRequestInFlight = false;
+    clearTimeout(AppState.tokenTimer);
+    AppState.tokenTimer = null;
+}
+
 function requestAccessToken() {
     if (!ensureTokenClient()) {
         setSaveStatus("Google API не загрузился — обновите страницу", "error");
         return;
     }
     if (AppState.tokenRequestInFlight) return;
-    AppState.tokenRequestInFlight = true;
-    AppState.tokenClient.requestAccessToken();
+    startTokenRequest();
 }
 
 function getAccessToken() {
@@ -295,23 +334,39 @@ function getAccessToken() {
         AppState.tokenQueue.push({resolve, reject});
         // Если запрос уже летит — не открываем второй popup.
         if (AppState.tokenRequestInFlight) return;
-        AppState.tokenRequestInFlight = true;
-        AppState.tokenClient.requestAccessToken();
+        startTokenRequest();
     });
 }
 
 function handleTokenResponse(response) {
-    AppState.tokenRequestInFlight = false;
+    finishTokenRequest();
 
     if (!response || response.error) {
         const err = response?.error || "unknown";
         while (AppState.tokenQueue.length) {
             AppState.tokenQueue.shift().reject(new Error(err));
         }
+        // Отмена пользователем — не повод выкидывать живую сессию.
+        if (err === "popup_closed" || err === "access_denied") {
+            setSaveStatus("Вход отменён", "info");
+            return;
+        }
+        const auth = getAuth();
+        if (auth && auth.clearSession) auth.clearSession();
+        AppState.googleToken = null;
+        AppState.googleUser = null;
+        setSignedInUI(false);
+        updateStatusUser();
         setSaveStatus("Ошибка входа: " + err, "error");
         return;
     }
     AppState.googleToken = response.access_token;
+
+    // Обновлённый GIS-токен должен переживать перезагрузку страницы.
+    const auth = getAuth();
+    if (auth && auth.updateSession) {
+        auth.updateSession(response.access_token, response.expires_in);
+    }
 
     // Если кто-то ждал в очереди — отдать токен, не открывая UI-логин
     if (AppState.tokenQueue.length) {
@@ -353,6 +408,7 @@ function showEditor() {
     updateStatusMode();
     setSignedInUI(!!AppState.googleToken);
     updateStatusUser();
+    setDirty(false);
 
     setTimeout(() => {
         fitCanvas();
@@ -377,12 +433,16 @@ function updateStatusUser() {
 }
 
 function setSignedInUI(signedIn) {
-    ["btn-pull", "btn-push", "btn-export-png", "btn-export-svg"].forEach((id) => {
+    // Экспорт не требует авторизации — кнопки не прячем.
+    ["btn-pull", "btn-push"].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.style.display = signedIn ? "" : "none";
     });
     const out = document.getElementById("btn-signout");
-    if (out) out.style.display = (signedIn || Auth.getSession()) ? "" : "none";
+    if (out) {
+        const auth = getAuth();
+        out.style.display = (signedIn || (auth && auth.getSession())) ? "" : "none";
+    }
     const gs = document.getElementById("google-signin-container");
     if (gs) gs.style.display = signedIn ? "none" : "";
 }
@@ -393,6 +453,7 @@ function rowsFromData(data) {
 }
 
 async function pullFromSheets() {
+    if (AppState.pullInFlight || AppState.pushInFlight) return;
     if (!CONFIG.sheetsId) {
         setSaveStatus("Configure sheetsId in CONFIG", "info");
         return;
@@ -401,6 +462,13 @@ async function pullFromSheets() {
         setSaveStatus("Войдите, чтобы загрузить", "info");
         return;
     }
+    if (AppState.dirty &&
+        !window.confirm("На холсте есть несохранённые изменения. Загрузить из Sheets и потерять их?")) {
+        setSaveStatus("Загрузка отменена", "info");
+        return;
+    }
+
+    AppState.pullInFlight = true;
     setSaveStatus("Loading...");
 
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.sheetsId}/values/Sheet1`;
@@ -420,24 +488,58 @@ async function pullFromSheets() {
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
         const rows = rowsFromData(data);
-        const {objects, groups} = parseLines(rows);
+        const {objects, groups, errors = []} = parseLines(rows);
 
+        // Пустой лист должен очищать холст, иначе остаётся «призрак» схемы.
+        renderOnCanvas(AppState.canvas, objects, groups);
+        updateObjectsForTheme();
+        AppState.history.clear();
+        setDirty(false);
+
+        if (errors.length) {
+            console.warn("SheetLang: пропущены строки", errors);
+        }
         if (objects.length > 0) {
-            renderOnCanvas(AppState.canvas, objects, groups);
-            updateObjectsForTheme();
-            AppState.history.clear();
-            setSaveStatus("Loaded from Sheets ✓", "ok");
+            setSaveStatus(
+                errors.length
+                    ? `Loaded from Sheets ✓ (строк с ошибками: ${errors.length})`
+                    : "Loaded from Sheets ✓",
+                errors.length ? "info" : "ok"
+            );
         } else {
-            AppState.history.clear();
-            setSaveStatus("Sheet empty", "info");
+            setSaveStatus(
+                errors.length ? `Sheet empty (ошибок: ${errors.length})` : "Sheet empty",
+                "info"
+            );
         }
     } catch (e) {
         console.error("Pull failed:", e);
         setSaveStatus("Pull error: " + (e.message || e), "error");
+    } finally {
+        AppState.pullInFlight = false;
     }
 }
 
+async function readApiError(res) {
+    const err = await res.json().catch(() => ({}));
+    return (err.error && err.error.message) || ("HTTP " + res.status);
+}
+
+async function authorizedFetch(url, options = {}) {
+    const doFetch = (token) => fetch(url, {
+        ...options,
+        headers: {...(options.headers || {}), Authorization: "Bearer " + token},
+    });
+    let res = await doFetch(AppState.googleToken);
+    if (res.status === 401) {
+        AppState.googleToken = await getAccessToken();
+        res = await doFetch(AppState.googleToken);
+    }
+    return res;
+}
+
 async function pushToSheets() {
+    if (AppState.pushInFlight || AppState.pullInFlight) return;
     if (!AppState.googleToken) {
         setSaveStatus("Not signed in", "error");
         return;
@@ -447,81 +549,101 @@ async function pushToSheets() {
         return;
     }
 
-    const lines = encodeCanvas(getCanvas());
+    let lines;
+    try {
+        lines = encodeCanvas(getCanvas());
+    } catch (e) {
+        console.error("Encode failed:", e);
+        setSaveStatus("Не удалось сериализовать холст: " + (e.message || e), "error");
+        return;
+    }
     if (lines.length > CONFIG.maxSheetRows) {
         setSaveStatus("Слишком много строк (" + lines.length + " > " + CONFIG.maxSheetRows + ")", "error");
         return;
     }
+    const canvasObjects = getCanvas().getObjects().filter((o) => !o.excludeFromExport);
+    if (canvasObjects.length > 0 && lines.length === 0) {
+        setSaveStatus("Ни один объект не удалось сериализовать — Push отменён", "error");
+        return;
+    }
+
+    const pushBtn = document.getElementById("btn-push");
+    AppState.pushInFlight = true;
+    if (pushBtn) pushBtn.disabled = true;
     setSaveStatus("Pushing...");
 
-    const clearUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.sheetsId}/values/Sheet1!A1:A${CONFIG.maxSheetRows}:clear`;
-    const putUrl = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.sheetsId}/values/Sheet1!A1:A${CONFIG.maxSheetRows}?valueInputOption=RAW`;
+    const base = `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.sheetsId}/values/Sheet1`;
+    const clearRange = (range) => authorizedFetch(`${base}!${range}:clear`, {method: "POST"});
 
     try {
-        let token = AppState.googleToken;
-
-        const doClear = () => fetch(clearUrl, {
-            method: "POST",
-            headers: {Authorization: "Bearer " + token},
-        });
-        const doPut = () => fetch(putUrl, {
-            method: "PUT",
-            headers: {
-                Authorization: "Bearer " + token,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({values: lines.map((l) => [l])}),
-        });
-
-        // Clear хвоста — критичная операция: без неё старые строки
-        // перемешаются с новыми и Pull получит "призраков".
-        let res = await doClear();
-        if (res.status === 401) {
-            try {
-                token = await getAccessToken();
-            } catch {
-                setSaveStatus("Нужен доступ Google — нажмите Push ещё раз", "error");
+        // Порядок важен: сначала пишем новые данные, и только после успешной
+        // записи чистим хвост. Иначе упавший PUT оставляет лист пустым.
+        if (lines.length > 0) {
+            const res = await authorizedFetch(
+                `${base}!A1:A${lines.length}?valueInputOption=RAW`,
+                {
+                    method: "PUT",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({values: lines.map((l) => [l])}),
+                }
+            );
+            if (!res.ok) {
+                setSaveStatus("Push error: " + await readApiError(res), "error");
                 return;
             }
-            res = await doClear();
-        }
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            setSaveStatus("Push error (clear): " + ((err.error && err.error.message) || res.status), "error");
-            return;
-        }
-
-        res = await doPut();
-        if (res.status === 401) {
-            try {
-                token = await getAccessToken();
-            } catch {
-                setSaveStatus("Нужен доступ Google — нажмите Push ещё раз", "error");
+        } else {
+            const res = await clearRange(`A1:A${CONFIG.maxSheetRows}`);
+            if (!res.ok) {
+                setSaveStatus("Push error (clear): " + await readApiError(res), "error");
                 return;
             }
-            res = await doPut();
         }
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            setSaveStatus("Push error: " + ((err.error && err.error.message) || res.status), "error");
-            return;
+
+        // Старые строки ниже нового блока удаляем только теперь.
+        if (lines.length > 0 && lines.length < CONFIG.maxSheetRows) {
+            const res = await clearRange(`A${lines.length + 1}:A${CONFIG.maxSheetRows}`);
+            if (!res.ok) {
+                setDirty(false);
+                setSaveStatus(
+                    "Данные записаны, но старый хвост листа не очищен — повторите Push",
+                    "error"
+                );
+                return;
+            }
         }
+
+        setDirty(false);
         setSaveStatus("Pushed to Sheets ✓ (" + lines.length + " lines)", "ok");
     } catch (e) {
         console.error("Push failed:", e);
         setSaveStatus("Push error: " + (e.message || e), "error");
+    } finally {
+        AppState.pushInFlight = false;
+        if (pushBtn) pushBtn.disabled = false;
     }
 }
 
 function bindToolbar() {
     document.querySelectorAll(".tool-btn[data-tool]").forEach((btn) => {
-        btn.addEventListener("click", () => {
+        btn.addEventListener("click", (event) => {
+            // После клика мышью кнопка остаётся в фокусе и перехватывает
+            // Space (панорамирование). Для клавиатурной активации
+            // (event.detail === 0) фокус сохраняем.
+            if (event.detail > 0) btn.blur();
             const tool = btn.dataset.tool;
             if (tool === "group") return groupSelected();
             if (tool === "ungroup") return ungroupSelected();
             if (tool === "delete") return deleteSelected();
 
-            if (tool === "text") addText();
+            if (tool === "text") {
+                // Сначала переключаем инструмент (он снимает старое
+                // выделение), потом создаём текст — иначе addText()
+                // тут же деактивируется.
+                setCurrentTool(tool);
+                activateTool(tool);
+                addText();
+                return;
+            }
             setCurrentTool(tool);
             activateTool(tool);
         });
@@ -529,7 +651,11 @@ function bindToolbar() {
 
     const bind = (id, fn) => {
         const el = document.getElementById(id);
-        if (el) el.addEventListener("click", fn);
+        if (!el) return;
+        el.addEventListener("click", (event) => {
+            if (event.detail > 0) el.blur();
+            fn(event);
+        });
     };
 
     bind("btn-zoom-in", () => {
@@ -547,7 +673,8 @@ function bindToolbar() {
 
     const gridBtn = document.getElementById("btn-grid");
     if (gridBtn) {
-        gridBtn.addEventListener("click", () => {
+        gridBtn.addEventListener("click", (event) => {
+            if (event.detail > 0) gridBtn.blur();
             const on = toggleGrid();
             gridBtn.classList.toggle("active", on);
         });
@@ -555,7 +682,10 @@ function bindToolbar() {
 
     bind("btn-pull", pullFromSheets);
     bind("btn-push", pushToSheets);
-    bind("btn-signout", () => Auth.logout());
+    bind("btn-signout", () => {
+        const auth = getAuth();
+        if (auth) auth.logout();
+    });
     bind("btn-export-png", exportPNG);
     bind("btn-export-svg", exportSVG);
 }
@@ -587,8 +717,9 @@ function bindHotkeys() {
             activateTool("arrow");
         },
         't': () => {
-            addText();
+            setCurrentTool("text");
             activateTool("text");
+            addText();
         },
         'p': () => {
             setCurrentTool("pencil");
@@ -618,17 +749,23 @@ function bindHotkeys() {
 
     document.addEventListener("keydown", (e) => {
         if (!AppState.canvas) return;
+        const ctrl = e.ctrlKey || e.metaKey;
+
+        // Ctrl+S — глобальное сохранение: не отдаём его браузеру,
+        // даже если фокус в поле свойств или в редактировании текста.
+        if (ctrl && e.code === "KeyS") {
+            e.preventDefault();
+            if (!document.querySelector("dialog[open]")) pushToSheets();
+            return;
+        }
+
+        if (document.querySelector("dialog[open]")) return;
         const tag = document.activeElement && document.activeElement.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
         const active = AppState.canvas.getActiveObject();
         if (active && active.isEditing) return;
 
-        const ctrl = e.ctrlKey || e.metaKey;
-
-        if (ctrl && e.code === "KeyS") {
-            e.preventDefault();
-            pushToSheets();
-        } else if (ctrl && e.code === "KeyZ") {
+        if (ctrl && e.code === "KeyZ") {
             e.preventDefault();
             AppState.history.undo();
         } else if (ctrl && e.code === "KeyY") {
@@ -666,22 +803,48 @@ function bindStatus() {
     });
 }
 
-function setSaveStatus(text, cls) {
-    const el = document.getElementById("save-status");
-    if (!el) return;
-    el.textContent = text;
-    el.style.color = cls === "error" ? "var(--danger)"
+function statusColor(cls) {
+    return cls === "error" ? "var(--danger)"
         : cls === "ok" ? "var(--success)"
             : "var(--text-dim)";
 }
 
+function setSaveStatus(text, cls) {
+    const color = statusColor(cls);
+    AppState.statusKind = cls || "info";
+    const el = document.getElementById("save-status");
+    if (el) {
+        el.textContent = text;
+        el.style.color = color;
+    }
+    // На мобильных верхний статус скрыт — дублируем в статусбар.
+    const bar = document.getElementById("status-msg");
+    if (bar) {
+        bar.textContent = text;
+        bar.style.color = color;
+    }
+}
+
 function exportPNG() {
-    const dataURL = getCanvas().toDataURL({format: "png", multiplier: 2});
-    download(dataURL, "schema.png");
+    setExportMode(true);
+    try {
+        const dataURL = getCanvas().toDataURL({format: "png", multiplier: 2});
+        download(dataURL, "schema.png");
+    } finally {
+        setExportMode(false);
+        getCanvas().requestRenderAll();
+    }
 }
 
 function exportSVG() {
-    const svg = getCanvas().toSVG();
+    const canvas = getCanvas();
+    const bg = getCanvasBgColor();
+    // toSVG() не рисует ни фон, ни сетку — добавляем фон вручную,
+    // чтобы PNG и SVG выглядели одинаково.
+    const svg = canvas.toSVG().replace(
+        /(<svg\b[^>]*>)/,
+        `$1<rect x="0" y="0" width="${canvas.getWidth()}" height="${canvas.getHeight()}" fill="${bg}"/>`
+    );
     const blob = new Blob([svg], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     download(url, "schema.svg");

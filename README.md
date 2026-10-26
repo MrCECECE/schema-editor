@@ -31,6 +31,7 @@
 │       ├── app.js                                    ← entry Viewer
 │       ├── editor-app.js                             ← entry Editor
 │       ├── editor.js                                 ← canvas, инструменты, сетка
+│       ├── fabric-fixes.js                           ← общие патчи Fabric
 │       ├── sheetlang.js                              ← parse/serialize SheetLang
 │       ├── history.js                                ← undo/redo (50 снапшотов)
 │       ├── toolbar.js                                ← панель свойств
@@ -97,13 +98,17 @@ origins** твоего OAuth-клиента в [Google Cloud Console](https://co
 ```
 R:x,y,w,h,fill,stroke,sw           Прямоугольник
 D:x,y,w,h,fill,stroke,sw           Ромб (bounding box)
-C:cx,cy,rx,ry,fill,stroke,sw       Круг/эллипс (x,y — центр)
+C:cx,cy,rx,ry,fill,stroke,sw       Круг/эллипс (cx,cy — центр)
 L:x1,y1,x2,y2,stroke,sw            Линия
-A:x1,y1,x2,y2,stroke,sw            Стрелка
-T:x,y,fontSize,color,text          Текст (без запятых)
+A:x1,y1,x2,y2,stroke,sw            Стрелка (конец — вершина наконечника)
+T:x,y,fontSize,color,text          Текст (top-left, запятые допустимы)
+P:x,y,sx,sy,fill,stroke,sw,d       Свободный path (карандаш), d — команды через пробелы
 G:n1,n2,...                        Группа (1-based номера строк листа)
 # ...                              Комментарий
 ```
+
+Необязательные хвостовые поля `@a45` (поворот) и `@o0.5` (прозрачность) поддерживаются
+у `R/D/C/T/P`; у `L/A` — только `@o`, потому что поворот линии уже запечён в координатах концов.
 
 ## Горячие клавиши
 
