@@ -67,7 +67,13 @@ T:x,y,fontSize,color,text[,@a…][,@o…]
 ```
 `x,y` is the top-left anchor of the unrotated text box. Commas inside `text` are preserved;
 trailing `@a…` / `@o…` fields are stripped as metadata.
+
+Line breaks are escaped to keep one sheet cell = one object: a newline is written as
+`\n` (two characters, backslash + `n`) and a literal backslash as `\\`. The reader
+decodes both, so multi-line text survives Push → Pull. Older rows without escapes
+load unchanged (a lone `\n` in such a row is now read as a line break).
 Example: `T:150,400,24,#ffffff,Chapter 1`
+Multiline: `T:150,400,24,#ffffff,Line 1\nLine 2`
 
 ### Free path (pencil)
 ```

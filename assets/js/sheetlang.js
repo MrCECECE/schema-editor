@@ -24,8 +24,21 @@ function round(v, digits = 0) {
   return Math.round(n * p) / p;
 }
 
+/**
+ * В одной ячейке листа лежит один объект, поэтому реальные переводы строк
+ * внутри текста кодируем как `\n`, а обратный слэш — как `\\`. Иначе
+ * многострочный текст при Push превращается в одну строку (и ломает
+ * «1 строка = 1 объект»). Старые строки без экранирования читаются как раньше.
+ */
 function escapeText(t) {
-  return String(t).replace(/[\r\n]+/g, " ");
+  return String(t)
+      .replace(/\\/g, "\\\\")
+      .replace(/\r\n?/g, "\n")
+      .replace(/\n/g, "\\n");
+}
+
+function unescapeText(t) {
+  return String(t).replace(/\\([\\n])/g, (_, ch) => (ch === "n" ? "\n" : "\\"));
 }
 
 function colorValue(value, fallback) {
@@ -252,7 +265,7 @@ function buildObject(type, p) {
         data: {
           left, top, fontSize,
           color: p[3],
-          text: p.slice(4).join(","),
+          text: unescapeText(p.slice(4).join(",")),
         },
       };
     }
